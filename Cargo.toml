@@ -1,0 +1,6 @@
+[package]
+name = "ruel"
+version = "0.0.1"
+description = "An experimental x86_64 kernel, mainly to learn OS development."
+authors = ["Nils Mathieu <contact@nils-mathieu.fr>"]
+publish = false
