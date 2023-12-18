@@ -15,7 +15,17 @@ use crate::log;
 /// This function attempts to rely on the least amount of code within the kernel as possible, as it
 /// is unable to know which parts are safe to use, and which are not.
 #[panic_handler]
-fn panic_routine(_info: &PanicInfo) -> ! {
+fn panic_routine(info: &PanicInfo) -> ! {
+    let message: &dyn core::fmt::Display = match info.message() {
+        Some(m) => m,
+        None => &"no further information",
+    };
+
+    let location: &dyn core::fmt::Display = match info.location() {
+        Some(l) => l,
+        None => &"unknown location",
+    };
+
     log::error!(
         "\
         The kernel panicked.\n\
@@ -24,7 +34,10 @@ fn panic_routine(_info: &PanicInfo) -> ! {
         opening an issue on the GitHub repository.\n\
         \n\
         https://github.com/nils-mathieu/ruel/issues/new\n\
-        "
+        \n\
+        Message: {message}\n\
+        Location: {location}\
+        ",
     );
     hcf();
 }

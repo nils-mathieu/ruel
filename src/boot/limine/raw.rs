@@ -1,19 +1,80 @@
 //! Defines the raw structures of the Limine boot protocol.
 
-use core::mem::transmute;
+use core::ffi::{c_char, CStr};
 
 use crate::utility::Volatile;
+
+/// A pointer into the bootloader-reclaimable memory of the kernel.
+#[repr(transparent)]
+pub struct LiminePtr<T: ?Sized>(*const T);
+
+impl<T> LiminePtr<T> {
+    /// A null [`LiminePtr<T>`].
+    pub const NULL: Self = Self(core::ptr::null());
+}
+
+impl<T: ?Sized> LiminePtr<T> {
+    /// Returns whether the pointer is null.
+    #[inline]
+    pub fn is_null(self) -> bool {
+        self.0.is_null()
+    }
+
+    /// Turns this pointer into a regular Rust reference.
+    ///
+    /// # Safety
+    ///
+    /// The memory pointed to by this pointer must be valid.
+    #[inline]
+    pub unsafe fn as_ref<'a>(self) -> &'a T {
+        unsafe { &*self.0 }
+    }
+}
+
+impl LiminePtr<c_char> {
+    /// Turns this pointer into a C string.
+    ///
+    /// # Safety
+    ///
+    /// The memory pointed to by this pointer must be valid and null-terminated.
+    #[inline]
+    pub unsafe fn as_cstr<'a>(self) -> &'a CStr {
+        unsafe { CStr::from_ptr(self.0) }
+    }
+}
+
+impl<T: ?Sized> core::fmt::Debug for LiminePtr<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(&self.0, f)
+    }
+}
+
+impl<T: ?Sized> Clone for LiminePtr<T> {
+    #[inline]
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T: ?Sized> Copy for LiminePtr<T> {}
+
+// SAFETY:
+//  `LiminePtr` is not necessarily a unique poiner to the value it points to (though in the
+//  context of the Limine boot protocol, that may be the case). If `T` is `Sync`, then it is safe
+//  to send a `ResponsePtr<T>` to another thread.
+unsafe impl<T: ?Sized + Sync> Send for LiminePtr<T> {}
+unsafe impl<T: ?Sized + Sync> Sync for LiminePtr<T> {}
 
 /// Represents a pointer that is written to by the bootloader while loading the kernel. We need to
 /// use [`Volatile`] semantics to prevent the compiler from optimizing away the reads of the
 /// pointer (from its perspective, the pointer is never written to, and thus always null).
 #[derive(Debug)]
-pub struct ResponsePtr<T: ?Sized>(Volatile<*const T>);
+pub struct ResponsePtr<T: ?Sized>(Volatile<LiminePtr<T>>);
 
 impl<T> ResponsePtr<T> {
     /// A null [`ResponsePtr<T>`].
     #[allow(clippy::declare_interior_mutable_const)]
-    pub const NULL: Self = Self(Volatile::new(core::ptr::null()));
+    pub const NULL: Self = Self(Volatile::new(LiminePtr::NULL));
 }
 
 impl<T: ?Sized> ResponsePtr<T> {
@@ -30,16 +91,13 @@ impl<T: ?Sized> ResponsePtr<T> {
     /// as the bootloader-reclaimable memory region is not overwritten.
     #[inline]
     pub unsafe fn read<'a>(&self) -> Option<&'a T> {
-        unsafe { transmute::<*const T, Option<&T>>(*self.0) }
+        if self.0.is_null() {
+            None
+        } else {
+            Some(unsafe { (*self.0).as_ref() })
+        }
     }
 }
-
-// SAFETY:
-//  `ResponsePtr` is not necessarily a unique poiner to the value it points to (though in the
-//  context of the Limine boot protocol, that may be the case). If `T` is `Sync`, then it is safe
-//  to send a `ResponsePtr<T>` to another thread.
-unsafe impl<T: Sync> Send for ResponsePtr<T> {}
-unsafe impl<T: Sync> Sync for ResponsePtr<T> {}
 
 impl<T: ?Sized> Clone for ResponsePtr<T> {
     #[inline]
@@ -93,6 +151,27 @@ impl Id {
 
 /// The type used to represent revision numbers.
 pub type Revision = u64;
+
+/// The requset ID for [`BootloaderInfoRequest`].
+pub const BOOTLOADER_INFO_REQUEST: Id = Id::common(0xf55038d8e2a1202f, 0x279426fcf5f59740);
+
+/// <https://github.com/limine-bootloader/limine/blob/v6.x-branch/PROTOCOL.md#bootloader-info-feature>
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct BootloaderInfoRequest {
+    pub id: Id,
+    pub revision: Revision,
+    pub response: ResponsePtr<BootloaderInfoResponse>,
+}
+
+/// The response type associated with [`BootloaderInfoRequest`].
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct BootloaderInfoResponse {
+    pub revision: Revision,
+    pub name: LiminePtr<c_char>,
+    pub version: LiminePtr<c_char>,
+}
 
 /// The request ID for [`MemoryMapRequest`].
 pub const ENTRY_POINT_REQUEST: Id = Id::common(0x13d86c035a1cd3e1, 0x2b0caa89d8f3026a);

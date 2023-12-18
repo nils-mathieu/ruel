@@ -11,10 +11,27 @@ static ENTRY_POINT: EntryPointRequest = EntryPointRequest {
     entry: super::main,
 };
 
+#[used(linker)]
+static BOOTLOADER_INFO: BootloaderInfoRequest = BootloaderInfoRequest {
+    id: BOOTLOADER_INFO_REQUEST,
+    revision: 0,
+    response: ResponsePtr::NULL,
+};
+
+/// Stores information about the bootloader, including its name and version.
+#[derive(Clone)]
+pub struct BootloaderInfo<'a> {
+    /// The name of the bootloader.
+    pub name: &'a [u8],
+    /// The version of the bootloader.
+    pub version: &'a [u8],
+}
+
 /// A token that vouchers for common assumptions that the Kernel has to make in order to
 /// access the data provided by the bootloader.
 ///
 /// More information in the safety requirements section of [`Token::get`].
+#[derive(Clone, Copy)]
 pub struct Token<'a> {
     _marker: core::marker::PhantomData<&'a ()>,
 }
@@ -42,6 +59,17 @@ impl<'a> Token<'a> {
         Self {
             _marker: core::marker::PhantomData,
         }
+    }
+
+    /// Returns the response that the bootloader provided to the kernel for the bootloader info
+    /// request.
+    pub fn bootloader_info(self) -> Option<BootloaderInfo<'a>> {
+        let response = unsafe { BOOTLOADER_INFO.response.read()? };
+
+        Some(BootloaderInfo {
+            name: unsafe { response.name.as_cstr().to_bytes() },
+            version: unsafe { response.version.as_cstr().to_bytes() },
+        })
     }
 
     /// Returns the response that the bootloader provided to the kernel for the entry point

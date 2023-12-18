@@ -60,5 +60,20 @@ unsafe extern "C" fn main() -> ! {
         );
     }
 
+    if let Some(info) = token.bootloader_info() {
+        log::info!(
+            "Bootloader: {} (v{})",
+            info.name.escape_ascii(),
+            info.version.escape_ascii(),
+        );
+    } else {
+        log::warn!(
+            "\
+            The bootloader did not respond to the `limine_bootloader_info` request of the kernel.\n\
+            This is not necessarily a bug in the bootloader; but it is pretty weird.\
+            "
+        );
+    }
+
     todo!();
 }

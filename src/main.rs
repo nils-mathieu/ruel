@@ -19,6 +19,7 @@
 //
 #![feature(used_with_arg)]
 #![feature(decl_macro)]
+#![feature(panic_info_message)]
 
 mod boot;
 mod hcf;
