@@ -20,6 +20,7 @@
 #![feature(used_with_arg)]
 #![feature(decl_macro)]
 #![feature(panic_info_message)]
+#![feature(asm_const)]
 
 mod boot;
 mod cpu;

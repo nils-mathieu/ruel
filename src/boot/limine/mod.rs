@@ -8,9 +8,12 @@
 //!
 //! The version 6 of the protocol is implemented.
 
+use core::alloc::Layout;
+use core::arch::asm;
+
 use self::raw::{MemmapEntry, MemmapType};
 use crate::cpu::paging::raw::{PageTable, PAGE_GLOBAL, PAGE_WRITE};
-use crate::cpu::paging::{AddressSpace, AddressSpaceContext, MappingError, HHDM_OFFSET};
+use crate::cpu::paging::{AddressSpace, AddressSpaceContext, MappingError, FOUR_KIB, HHDM_OFFSET};
 use crate::hcf::die;
 use crate::log;
 use crate::mem::{BumpAllocator, OutOfMemory, PhysAddr, VirtAddr};
@@ -174,7 +177,7 @@ unsafe extern "C" fn main() -> ! {
     };
 
     // =============================================================================================
-    // CPU Initialization
+    // Address Space & Kernel Stack
     // =============================================================================================
     log::trace!("Creating the kernel address space...");
 
@@ -188,6 +191,74 @@ unsafe extern "C" fn main() -> ! {
     };
 
     log::trace!("Kernel L4 Table stored at address {:#x}", address_space);
+
+    log::trace!("Creating the kernel stack...");
+
+    // Allocate the kernel stack.
+    const KERNEL_STACK_SIZE: usize = 16 * FOUR_KIB;
+    let kernel_stack_base = bootstrap_allocator
+        .allocate(Layout::new::<[u8; KERNEL_STACK_SIZE]>())
+        .unwrap_or_else(|_| oom());
+    let kernel_stack_top = kernel_stack_base as usize + HHDM_OFFSET + KERNEL_STACK_SIZE;
+
+    // Allocate the `ToNewStack` instance that will be passed to the new stack.
+    let to_new_stack_phys_addr = bootstrap_allocator
+        .allocate(Layout::new::<ToNewStack>())
+        .unwrap_or_else(|_| oom());
+
+    unsafe {
+        core::ptr::write(
+            (to_new_stack_phys_addr + bootloader_hhdm) as *mut ToNewStack,
+            ToNewStack {
+                bootstrap_allocator,
+                kernel_stack_top,
+            },
+        );
+    }
+
+    log::trace!("Switching address space...");
+
+    unsafe {
+        asm!(
+            "
+            mov cr3, {l4_table}
+            mov rsp, {new_stack}
+            mov rbp, {new_stack}
+            call {with_new_stack}
+            ",
+            l4_table = in(reg) address_space,
+            new_stack = in(reg) kernel_stack_top,
+            in("rdi") to_new_stack_phys_addr as usize + HHDM_OFFSET,
+            with_new_stack = sym with_new_stack,
+            options(noreturn, preserves_flags)
+        );
+    }
+}
+
+/// A structure that's passed from the bootloader's stack to the kernel's stack.
+///
+/// Because virtual-memory references are invalidated, we need to copy everything we need
+/// from the bootloader's stack to the kernel's stack (or save their physical addresses).
+struct ToNewStack {
+    /// The allocator that's being used to allocate memory during the booting process.
+    bootstrap_allocator: BumpAllocator,
+    /// The virtual address of the kernel stack.
+    kernel_stack_top: VirtAddr,
+}
+
+/// The function that is called upon entering the new stack and address space.
+extern "C" fn with_new_stack(package: *mut ToNewStack) -> ! {
+    let ToNewStack {
+        mut bootstrap_allocator,
+        kernel_stack_top,
+    } = unsafe { package.read() };
+
+    // =============================================================================================
+    // CPU Initialization
+    // =============================================================================================
+    unsafe {
+        crate::cpu::gdt::init(&mut bootstrap_allocator, kernel_stack_top).unwrap_or_else(|_| oom());
+    }
 
     todo!();
 }
@@ -233,10 +304,10 @@ fn validate_memory_map(memory_map: &[&MemmapEntry]) {
             if last_entry.base > entry.base {
                 log::error!(
                     "\
-                        The memory map provided by the bootloader is not sorted by base address.\n\
-                        This is a bug in the bootloader; the protocol requires it to be already\n\
-                        sorted.\
-                        "
+                    The memory map provided by the bootloader is not sorted by base address.\n\
+                    This is a bug in the bootloader; the protocol requires it to be already\n\
+                    sorted.\
+                    "
                 );
                 die();
             }

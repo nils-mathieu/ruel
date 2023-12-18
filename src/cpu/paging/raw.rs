@@ -55,14 +55,14 @@ impl Index<PageTableIndex> for PageTable {
 
     #[inline]
     fn index(&self, index: PageTableIndex) -> &Self::Output {
-        unsafe { self.0.get_unchecked(index.0 as usize) }
+        unsafe { self.0.get_unchecked(index.index()) }
     }
 }
 
 impl IndexMut<PageTableIndex> for PageTable {
     #[inline]
     fn index_mut(&mut self, index: PageTableIndex) -> &mut Self::Output {
-        unsafe { self.0.get_unchecked_mut(index.0 as usize) }
+        unsafe { self.0.get_unchecked_mut(index.index()) }
     }
 }
 
@@ -106,6 +106,12 @@ impl PageTableIndex {
             Self(((virt >> 39) & 0o777) as u16),
             Self(((virt >> 48) & 0o777) as u16),
         ]
+    }
+
+    /// Returns the index that this [`PageTableIndex`] represents.
+    #[inline]
+    pub fn index(self) -> usize {
+        self.0 as usize
     }
 }
 
