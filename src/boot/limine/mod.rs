@@ -258,6 +258,7 @@ extern "C" fn with_new_stack(package: *mut ToNewStack) -> ! {
     // =============================================================================================
     unsafe {
         crate::cpu::gdt::init(&mut bootstrap_allocator, kernel_stack_top).unwrap_or_else(|_| oom());
+        crate::cpu::idt::init(&mut bootstrap_allocator).unwrap_or_else(|_| oom());
     }
 
     todo!();

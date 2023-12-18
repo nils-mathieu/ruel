@@ -21,6 +21,7 @@
 #![feature(decl_macro)]
 #![feature(panic_info_message)]
 #![feature(asm_const)]
+#![feature(abi_x86_interrupt)]
 
 mod boot;
 mod cpu;

@@ -1,3 +1,5 @@
+//! This module mainly provide constants describing the state of the GDT loaded by the kernel.
+
 use core::alloc::Layout;
 use core::arch::asm;
 use core::mem::size_of;
