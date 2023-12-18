@@ -24,5 +24,6 @@
 mod boot;
 mod hcf;
 mod log;
+mod mem;
 mod sync;
 mod utility;

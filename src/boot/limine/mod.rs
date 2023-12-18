@@ -8,8 +8,10 @@
 //!
 //! The version 6 of the protocol is implemented.
 
-use crate::hcf::hcf;
+use self::raw::{MemmapEntry, MemmapType};
+use crate::hcf::die;
 use crate::log;
+use crate::mem::BumpAllocator;
 
 mod raw;
 mod req;
@@ -42,7 +44,7 @@ unsafe extern "C" fn main() -> ! {
             Please update your bootloader.\
             ",
         );
-        hcf();
+        die();
     }
 
     // SAFETY:
@@ -53,7 +55,7 @@ unsafe extern "C" fn main() -> ! {
     if token.entry_point().is_none() {
         log::warn!(
             "\
-            The bootloader did not respond to the `limine_entry_point` request of the kernel.\n\
+            The bootloader did not respond to the `limine_entry_point_request` of the kernel.\n\
             This is a bug in the bootloader; the protocol requires it to respond to this\n\
             request.\
             ",
@@ -69,11 +71,131 @@ unsafe extern "C" fn main() -> ! {
     } else {
         log::warn!(
             "\
-            The bootloader did not respond to the `limine_bootloader_info` request of the kernel.\n\
+            The bootloader did not respond to the `limine_bootloader_info_request` of the kernel.\n\
             This is not necessarily a bug in the bootloader; but it is pretty weird.\
             "
         );
     }
 
+    let memory_map = token.memmap().unwrap_or_else(|| {
+        log::error!(
+            "\
+            The bootloader did not respond to the `limine_memmap_request` of the kernel.\n\
+            The kernel is unable to continue without a map of the memory regions.\
+            "
+        );
+        die();
+    });
+
+    if memory_map.is_empty() {
+        log::error!(
+            "\
+            The bootloader reported an empty memory map.\n\
+            The kernel is unable to continue without a map of the memory regions.\
+            "
+        );
+        die();
+    }
+
+    validate_memory_map(memory_map);
+
+    // =============================================================================================
+    // Initial Allocator
+    // =============================================================================================
+    log::trace!("Finding a suitable block for the bootstrap allocator...");
+
+    let largest_usable_segment = find_largest_usable_segment(memory_map).unwrap();
+
+    log::trace!(
+        "The bootstrap allocator will use the memory segment {:#x}..{:#x} ({})",
+        largest_usable_segment.base,
+        largest_usable_segment.base + largest_usable_segment.length,
+        crate::utility::HumanByteCount(largest_usable_segment.length),
+    );
+
+    // SAFETY:
+    //  The ownership of the largest usable segment is transferred to the bootstrap allocator. We
+    //  won't be accessing it until the allocator is no longer used.
+    let mut bootstrap_allocator = unsafe {
+        BumpAllocator::new(
+            largest_usable_segment.base,
+            largest_usable_segment.base + largest_usable_segment.length,
+        )
+    };
+
+    let _ = bootstrap_allocator.allocate(core::alloc::Layout::new::<()>());
+
     todo!();
+}
+
+/// Finds the largest usable memory segment in the memory map.
+fn find_largest_usable_segment<'a>(memory_map: &[&'a MemmapEntry]) -> Option<&'a MemmapEntry> {
+    memory_map
+        .iter()
+        .filter(|entry| entry.ty == MemmapType::USABLE)
+        .max_by_key(|entry| entry.length)
+        .copied()
+}
+
+/// Validates the memory map provided by the bootloader.
+///
+/// If the map is found to break some of the invariants specified in the protocol, the function
+/// stops the CPU.
+fn validate_memory_map(memory_map: &[&MemmapEntry]) {
+    let mut last_entry: Option<&MemmapEntry> = None;
+
+    for entry in memory_map {
+        match &mut last_entry {
+            Some(last_entry) => {
+                if last_entry.base > entry.base {
+                    log::error!(
+                        "\
+                        The memory map provided by the bootloader is not sorted by base address.\n\
+                        This is a bug in the bootloader; the protocol requires it to be already\n\
+                        sorted.\
+                        "
+                    );
+                    die();
+                }
+            }
+            None => last_entry = Some(*entry),
+        }
+
+        if entry.length == 0 {
+            log::error!(
+                "\
+                The memory map provided by the bootloader contains an entry with a length of 0.\n\
+                This is a bug in the bootloader; the protocol requires it to not contain such\n\
+                entries.\
+                "
+            );
+            die();
+        }
+
+        if entry.ty == MemmapType::USABLE || entry.ty == MemmapType::BOOTLOADER_RECLAIMABLE {
+            if entry.base & 0xFFF != 0 || entry.length & 0xFFF != 0 {
+                log::error!(
+                    "\
+                    The memory map provided by the bootloader contains a usable entry that\n\
+                    is not page-aligned. This is a bug in the bootloader; the protocol requires it\n\
+                    to be properly page-aligned.\
+                    "
+                );
+                die();
+            }
+
+            if let Some(last_entry) = last_entry {
+                if last_entry.base + last_entry.length > entry.base {
+                    log::error!(
+                        "\
+                        The memory map provided by the bootloader contains overlapping usable\n\
+                        entries. This is a bug in the bootloader; the protocol requires it to not\n\
+                        contain such entries.\
+                        "
+                    );
+                    die();
+                }
+            }
+        }
+    }
 }

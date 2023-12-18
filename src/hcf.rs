@@ -1,4 +1,4 @@
-//! This module implements the panic handler for the whole system. See [`hcf`].
+//! This module implements the panic handler for the whole system. See [`panic_routine`].
 
 use core::arch::asm;
 use core::panic::PanicInfo;
@@ -39,11 +39,12 @@ fn panic_routine(info: &PanicInfo) -> ! {
         Location: {location}\
         ",
     );
-    hcf();
+
+    die();
 }
 
 /// Stops the CPU from receiving interrupts and halts forever.
-pub fn hcf() -> ! {
+pub fn die() -> ! {
     unsafe {
         asm!(
             "

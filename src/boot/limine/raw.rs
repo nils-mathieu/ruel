@@ -11,6 +11,16 @@ pub struct LiminePtr<T: ?Sized>(*const T);
 impl<T> LiminePtr<T> {
     /// A null [`LiminePtr<T>`].
     pub const NULL: Self = Self(core::ptr::null());
+
+    /// Creates a slice from this pointer.
+    ///
+    /// # Safety
+    ///
+    /// The memory pointed to by this pointer must be valid the lifetime of the created slice.
+    #[inline]
+    pub unsafe fn slice<'a>(self, len: usize) -> &'a [T] {
+        unsafe { core::slice::from_raw_parts(self.0, len) }
+    }
 }
 
 impl<T: ?Sized> LiminePtr<T> {
@@ -28,6 +38,12 @@ impl<T: ?Sized> LiminePtr<T> {
     #[inline]
     pub unsafe fn as_ref<'a>(self) -> &'a T {
         unsafe { &*self.0 }
+    }
+
+    /// Casts this pointer to a pointer to a different type.
+    #[inline]
+    pub const fn cast<U>(self) -> LiminePtr<U> {
+        LiminePtr(self.0 as *const U)
     }
 }
 
@@ -194,4 +210,66 @@ pub struct EntryPointRequest {
 #[derive(Debug, Clone)]
 pub struct EntryPointResponse {
     pub revision: Revision,
+}
+
+/// The request ID for [`MemmapRequest`].
+pub const MEMMAP_REQUEST: Id = Id::common(0x67cf3d9d378a806f, 0xe304acdfc50c3c62);
+
+/// <https://github.com/limine-bootloader/limine/blob/v6.x-branch/PROTOCOL.md#memory-map-feature>
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct MemmapRequest {
+    pub id: Id,
+    pub revision: Revision,
+    pub response: ResponsePtr<MemmapResponse>,
+}
+
+/// The response type associated with [`MemmapRequest`].
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct MemmapResponse {
+    pub revision: Revision,
+    pub entry_count: u64,
+    pub entries: LiminePtr<LiminePtr<MemmapEntry>>,
+}
+
+/// An entry in the memory map, as reported by the bootloader.
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct MemmapEntry {
+    pub base: u64,
+    pub length: u64,
+    pub ty: MemmapType,
+}
+
+/// The type of a memory map entry.
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct MemmapType(pub u32);
+
+impl MemmapType {
+    pub const USABLE: Self = Self(0);
+    pub const RESERVED: Self = Self(1);
+    pub const ACPI_RECLAIMABLE: Self = Self(2);
+    pub const ACPI_NVS: Self = Self(3);
+    pub const BAD_MEMORY: Self = Self(4);
+    pub const BOOTLOADER_RECLAIMABLE: Self = Self(5);
+    pub const KERNEL_AND_MODULES: Self = Self(6);
+    pub const FRAMEBUFFER: Self = Self(7);
+}
+
+impl core::fmt::Debug for MemmapType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match *self {
+            Self::USABLE => write!(f, "USABLE"),
+            Self::RESERVED => write!(f, "RESERVED"),
+            Self::ACPI_RECLAIMABLE => write!(f, "ACPI_RECLAIMABLE"),
+            Self::ACPI_NVS => write!(f, "ACPI_NVS"),
+            Self::BAD_MEMORY => write!(f, "BAD_MEMORY"),
+            Self::BOOTLOADER_RECLAIMABLE => write!(f, "BOOTLOADER_RECLAIMABLE"),
+            Self::KERNEL_AND_MODULES => write!(f, "KERNEL_AND_MODULES"),
+            Self::FRAMEBUFFER => write!(f, "FRAMEBUFFER"),
+            _ => f.debug_tuple("MemmapType").field(&self.0).finish(),
+        }
+    }
 }

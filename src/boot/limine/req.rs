@@ -18,6 +18,13 @@ static BOOTLOADER_INFO: BootloaderInfoRequest = BootloaderInfoRequest {
     response: ResponsePtr::NULL,
 };
 
+#[used(linker)]
+static MEMMAP_ENTRY: MemmapRequest = MemmapRequest {
+    id: MEMMAP_REQUEST,
+    revision: 0,
+    response: ResponsePtr::NULL,
+};
+
 /// Stores information about the bootloader, including its name and version.
 #[derive(Clone)]
 pub struct BootloaderInfo<'a> {
@@ -74,8 +81,13 @@ impl<'a> Token<'a> {
 
     /// Returns the response that the bootloader provided to the kernel for the entry point
     /// request.
-    #[inline]
     pub fn entry_point(self) -> Option<&'a EntryPointResponse> {
         unsafe { ENTRY_POINT.response.read() }
+    }
+
+    /// Returns the memory map entries provided by the bootloader.
+    pub fn memmap(&self) -> Option<&'a [&'a MemmapEntry]> {
+        let response = unsafe { MEMMAP_ENTRY.response.read()? };
+        Some(unsafe { response.entries.cast().slice(response.entry_count as usize) })
     }
 }
