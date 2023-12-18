@@ -1,4 +1,7 @@
 //! This module mainly provides the [`init`] function used to initialize the kernel's IDT.
+//!
+//! The implementation of the Interrupt Service Routines (ISRs) are located in the [`handlers`]
+//! module.
 
 use core::alloc::Layout;
 use core::arch::asm;

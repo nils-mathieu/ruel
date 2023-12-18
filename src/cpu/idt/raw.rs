@@ -1,6 +1,7 @@
 use core::ops::{Index, IndexMut};
 
 /// An Interrupt Descriptor Table.
+#[repr(transparent)]
 pub struct Idt([GateDesc; 256]);
 
 impl Index<u8> for Idt {

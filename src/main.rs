@@ -22,6 +22,7 @@
 #![feature(panic_info_message)]
 #![feature(asm_const)]
 #![feature(abi_x86_interrupt)]
+#![feature(naked_functions)]
 
 mod boot;
 mod cpu;
