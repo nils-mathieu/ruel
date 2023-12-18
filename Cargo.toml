@@ -7,7 +7,10 @@ edition = "2021"
 publish = false
 
 [features]
-default = ["boot-limine"]
+default = ["boot-limine", "debug-serial"]
 
 # Allows the kernel to be booted by a Limine bootloader.
 boot-limine = []
+
+# Allows the kernel to print debug messages to the serial port.
+debug-serial = []

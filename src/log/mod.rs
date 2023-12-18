@@ -6,10 +6,11 @@
 use core::fmt::Arguments;
 
 mod display;
+
+#[cfg(feature = "debug-serial")]
 mod serial;
 
 pub use self::display::*;
-pub use self::serial::*;
 
 /// A message that the kernel can print.
 pub struct Message<'a> {
@@ -34,8 +35,9 @@ impl<'a> Message<'a> {
 
     /// Logs this message.
     pub fn log(self) {
+        #[cfg(feature = "debug-serial")]
         let _ = core::fmt::write(
-            &mut Serial::get(),
+            &mut serial::Serial::get(),
             format_args!("{}\n", self.with_ansi_colors()),
         );
     }
