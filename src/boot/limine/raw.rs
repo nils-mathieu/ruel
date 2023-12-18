@@ -189,7 +189,7 @@ pub struct BootloaderInfoResponse {
     pub version: LiminePtr<c_char>,
 }
 
-/// The request ID for [`MemoryMapRequest`].
+/// The request ID for [`EntryPointRequest`].
 pub const ENTRY_POINT_REQUEST: Id = Id::common(0x13d86c035a1cd3e1, 0x2b0caa89d8f3026a);
 
 /// The signature of the entry point function expected by the bootloader.
@@ -272,4 +272,45 @@ impl core::fmt::Debug for MemmapType {
             _ => f.debug_tuple("MemmapType").field(&self.0).finish(),
         }
     }
+}
+
+/// The request ID for [`HhdmRequest`].
+pub const HHDM_REQUEST: Id = Id::common(0x48dcf1cb8ad2b852, 0x63984e959a98244b);
+
+/// <https://github.com/limine-bootloader/limine/blob/v6.x-branch/PROTOCOL.md#hhdm-higher-half-direct-map-feature>
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct HhdmRequest {
+    pub id: Id,
+    pub revision: Revision,
+    pub response: ResponsePtr<HhdmResponse>,
+}
+
+/// The response type associated with [`HhdmRequest`].
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct HhdmResponse {
+    pub revision: Revision,
+    pub offset: u64,
+}
+
+/// The request ID for [`KernelAddressRequest`].
+pub const KERNEL_ADDRESS_REQUEST: Id = Id::common(0x71ba76863cc55f63, 0xb2644a48c516a487);
+
+/// <https://github.com/limine-bootloader/limine/blob/v6.x-branch/PROTOCOL.md#kernel-address-feature>
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct KernelAddressRequest {
+    pub id: Id,
+    pub revision: Revision,
+    pub response: ResponsePtr<KernelAddressResponse>,
+}
+
+/// The response type associated with [`KernelAddressRequest`].
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct KernelAddressResponse {
+    pub revision: Revision,
+    pub physical_base: u64,
+    pub virtual_base: u64,
 }

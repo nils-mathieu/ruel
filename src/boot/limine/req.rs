@@ -19,20 +19,25 @@ static BOOTLOADER_INFO: BootloaderInfoRequest = BootloaderInfoRequest {
 };
 
 #[used(linker)]
-static MEMMAP_ENTRY: MemmapRequest = MemmapRequest {
+static MEMMAP: MemmapRequest = MemmapRequest {
     id: MEMMAP_REQUEST,
     revision: 0,
     response: ResponsePtr::NULL,
 };
 
-/// Stores information about the bootloader, including its name and version.
-#[derive(Clone)]
-pub struct BootloaderInfo<'a> {
-    /// The name of the bootloader.
-    pub name: &'a [u8],
-    /// The version of the bootloader.
-    pub version: &'a [u8],
-}
+#[used(linker)]
+static HHDM: HhdmRequest = HhdmRequest {
+    id: HHDM_REQUEST,
+    revision: 0,
+    response: ResponsePtr::NULL,
+};
+
+#[used(linker)]
+static KERNEL_ADDRESS: KernelAddressRequest = KernelAddressRequest {
+    id: KERNEL_ADDRESS_REQUEST,
+    revision: 0,
+    response: ResponsePtr::NULL,
+};
 
 /// A token that vouchers for common assumptions that the Kernel has to make in order to
 /// access the data provided by the bootloader.
@@ -86,8 +91,28 @@ impl<'a> Token<'a> {
     }
 
     /// Returns the memory map entries provided by the bootloader.
-    pub fn memmap(&self) -> Option<&'a [&'a MemmapEntry]> {
-        let response = unsafe { MEMMAP_ENTRY.response.read()? };
+    pub fn memmap(self) -> Option<&'a [&'a MemmapEntry]> {
+        let response = unsafe { MEMMAP.response.read()? };
         Some(unsafe { response.entries.cast().slice(response.entry_count as usize) })
     }
+
+    /// Reads the response that the bootloader provided to the kernel for the HHDM request.
+    pub fn hhdm(self) -> Option<&'a HhdmResponse> {
+        unsafe { HHDM.response.read() }
+    }
+
+    /// Reads the response that the bootloader provided to the kernel for the kernel address
+    /// request.
+    pub fn kernel_address(self) -> Option<&'a KernelAddressResponse> {
+        unsafe { KERNEL_ADDRESS.response.read() }
+    }
+}
+
+/// Stores information about the bootloader, including its name and version.
+#[derive(Clone)]
+pub struct BootloaderInfo<'a> {
+    /// The name of the bootloader.
+    pub name: &'a [u8],
+    /// The version of the bootloader.
+    pub version: &'a [u8],
 }

@@ -1,6 +1,6 @@
 use core::alloc::Layout;
 
-use super::PhysAddr;
+use super::{OutOfMemory, PhysAddr};
 
 /// A memory allocator that uses a pointer bumping strategy to allocate new memory pages.
 ///
@@ -59,20 +59,20 @@ impl BumpAllocator {
     ///
     /// The returned physical address is guaranteed to be aligned to `layout.align()`, and to
     /// be at least `layout.size()` bytes large.
-    pub fn allocate(&mut self, layout: Layout) -> Option<PhysAddr> {
+    pub fn allocate(&mut self, layout: Layout) -> Result<PhysAddr, OutOfMemory> {
         let size = layout.size() as u64;
         let align = layout.align() as u64;
 
         let mut ret = self.top;
 
-        ret = ret.checked_sub(size)?;
+        ret = ret.checked_sub(size).ok_or(OutOfMemory)?;
         ret &= !(align - 1);
 
         if ret < self.base {
-            return None;
+            return Err(OutOfMemory);
         }
 
         self.top = ret;
-        Some(ret)
+        Ok(ret)
     }
 }

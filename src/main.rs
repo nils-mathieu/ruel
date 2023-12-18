@@ -22,7 +22,9 @@
 #![feature(panic_info_message)]
 
 mod boot;
+mod cpu;
 mod hcf;
+mod linker;
 mod log;
 mod mem;
 mod sync;
