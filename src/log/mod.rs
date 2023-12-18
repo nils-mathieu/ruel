@@ -6,11 +6,10 @@
 use core::fmt::Arguments;
 
 mod display;
+pub use self::display::*;
 
 #[cfg(feature = "debug-serial")]
 mod serial;
-
-pub use self::display::*;
 
 /// A message that the kernel can print.
 pub struct Message<'a> {

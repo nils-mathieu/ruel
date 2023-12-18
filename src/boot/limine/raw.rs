@@ -314,3 +314,66 @@ pub struct KernelAddressResponse {
     pub physical_base: u64,
     pub virtual_base: u64,
 }
+
+/// The request ID for [`ModuleRequest`].
+pub const MODULE_REQUEST: Id = Id::common(0x3e7e279702be32af, 0xca1c4f3bd1280cee);
+
+pub struct InternalModule {
+    pub path: LiminePtr<c_char>,
+    pub cmdline: LiminePtr<c_char>,
+    pub flags: u64,
+}
+
+/// <https://github.com/limine-bootloader/limine/blob/v6.x-branch/PROTOCOL.md#module-feature>
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct ModuleRequest {
+    pub id: Id,
+    pub revision: Revision,
+    pub response: ResponsePtr<ModuleResponse>,
+
+    // Request revision 1
+    pub internal_module_count: u64,
+    pub internal_modules: LiminePtr<LiminePtr<InternalModule>>,
+}
+
+/// The response type associated with [`ModuleRequest`].
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct ModuleResponse {
+    pub revision: Revision,
+    pub module_count: u64,
+    pub modules: LiminePtr<LiminePtr<File>>,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct Uuid {
+    pub a: u32,
+    pub b: u16,
+    pub c: u16,
+    pub d: [u8; 8],
+}
+
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct File {
+    pub revision: u64,
+    pub address: LiminePtr<u8>,
+    pub size: u64,
+    pub path: LiminePtr<c_char>,
+    pub cmdline: LiminePtr<c_char>,
+    pub media_type: u64,
+    pub unused: u32,
+    pub tftp_ip: u32,
+    pub tftp_port: u32,
+    pub partition_index: u32,
+    pub mbr_disk_id: u32,
+    pub gpt_disk_uuid: Uuid,
+    pub gpt_part_uuid: Uuid,
+    pub part_uuid: Uuid,
+}
+
+pub const MEDIA_TYPE_GENERIC: u64 = 0;
+pub const MEDIA_TYPE_OPTICAL: u64 = 1;
+pub const MEDIA_TYPE_TFTP: u64 = 2;

@@ -152,6 +152,32 @@ unsafe extern "C" fn main() -> ! {
         die();
     }
 
+    log::trace!("Looking for the init program...");
+
+    let init_program = unsafe { find_init_program(token.modules()) };
+
+    log::trace!(
+        "\
+        Found the init program:\n\
+        > Path    = `{}`\n\
+        > Cmdline = `{}`\n\
+        > Size    = {}\n\
+        > Media   = {}\
+        ",
+        unsafe { init_program.path.as_cstr().to_bytes().escape_ascii() },
+        unsafe { init_program.cmdline.as_cstr().to_bytes().escape_ascii() },
+        crate::utility::HumanByteCount(init_program.size),
+        match init_program.media_type {
+            raw::MEDIA_TYPE_GENERIC => "GENERIC",
+            raw::MEDIA_TYPE_OPTICAL => "OPTICAL",
+            raw::MEDIA_TYPE_TFTP => "TFTP",
+            unknown => {
+                log::warn!("Unknown media type: {}", unknown);
+                "UNKNOWN"
+            }
+        },
+    );
+
     // =============================================================================================
     // Bootstrap Allocator
     // =============================================================================================
@@ -442,6 +468,55 @@ fn handle_mapping_error(err: MappingError) -> ! {
         MappingError::AlreadyMapped => panic!("attempted to map a page that is already mapped"),
         MappingError::OutOfMemory => oom(),
     }
+}
+
+/// Finds the init program in the provided modules.
+///
+/// # Safety
+///
+/// The memory referenced by the files must still be around.
+unsafe fn find_init_program<'a>(modules: &[&'a raw::File]) -> &'a raw::File {
+    let mut found = None;
+
+    for module in modules {
+        let name = basename(unsafe { module.path.as_cstr().to_bytes() });
+
+        if name == b"alibert" {
+            if found.is_none() {
+                found = Some(module);
+            } else {
+                log::warn!(
+                    "Found duplicate module: `alibert` ({})",
+                    name.escape_ascii(),
+                );
+            }
+        } else {
+            log::warn!("Unknown module: `{}`", name.escape_ascii());
+        }
+    }
+
+    found.unwrap_or_else(|| {
+        log::error!(
+            "\
+            The init program could not be found in the modules provided by the bootloader.\n\
+            The kernel is unable to continue without an init program.\n\
+            \n\
+            The kernel expects a module named 'alibert' to be provided by the bootloader.\n\
+            Try adding the following lines to your `limine.cfg` file:\n\
+            \n\
+            MODULE_PATH=boot:///some_path/alibert\n\
+            MODULE_CMDLINE=optional command line arguments\
+            ",
+        );
+        die();
+    })
+}
+
+/// Returns the basename of the provided path.
+fn basename(path: &[u8]) -> &[u8] {
+    path.iter()
+        .rposition(|&c| c == b'/')
+        .map_or(path, |idx| &path[idx + 1..])
 }
 
 /// Prints an helpful message and halts the CPU.

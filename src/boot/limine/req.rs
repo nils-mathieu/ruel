@@ -39,6 +39,15 @@ static KERNEL_ADDRESS: KernelAddressRequest = KernelAddressRequest {
     response: ResponsePtr::NULL,
 };
 
+#[used(linker)]
+static MODULE: ModuleRequest = ModuleRequest {
+    id: MODULE_REQUEST,
+    revision: 0,
+    response: ResponsePtr::NULL,
+    internal_module_count: 0,
+    internal_modules: LiminePtr::NULL,
+};
+
 /// A token that vouchers for common assumptions that the Kernel has to make in order to
 /// access the data provided by the bootloader.
 ///
@@ -105,6 +114,16 @@ impl<'a> Token<'a> {
     /// request.
     pub fn kernel_address(self) -> Option<&'a KernelAddressResponse> {
         unsafe { KERNEL_ADDRESS.response.read() }
+    }
+
+    /// Reads the modules provided by the user.
+    pub fn modules(self) -> &'a [&'a File] {
+        // If the user has provided no modules, the bootloader will not answer the module request
+        // at all. In that case, we return an empty slice.
+        match unsafe { MODULE.response.read() } {
+            Some(resp) => unsafe { resp.modules.cast().slice(resp.module_count as usize) },
+            None => &[],
+        }
     }
 }
 
