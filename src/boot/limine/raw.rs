@@ -48,6 +48,9 @@ impl<T: ?Sized> Clone for ResponsePtr<T> {
     }
 }
 
+/// The base version of the protocol implemented by the kernel.
+pub const BASE_VERSION: u64 = 1;
+
 /// This static variable is read by the bootloader to determine the base revision the kernel
 /// knows about.
 ///
@@ -55,7 +58,7 @@ impl<T: ?Sized> Clone for ResponsePtr<T> {
 /// of this array to 0. Otherwise, it will leave it unchanged.
 #[used(linker)]
 static BASE_REVISION: Volatile<[u64; 3]> =
-    Volatile::new([0xf9562b2d5c95a6c8, 0x6a7b384944536bdc, 1]);
+    Volatile::new([0xf9562b2d5c95a6c8, 0x6a7b384944536bdc, BASE_VERSION]);
 
 /// Returns whether the bootloader supports the base revision expected by the kernel.
 #[inline]

@@ -9,6 +9,7 @@
 //! The version 6 of the protocol is implemented.
 
 use crate::hcf::hcf;
+use crate::log;
 
 mod raw;
 mod req;
@@ -25,8 +26,22 @@ mod req;
 ///
 /// [Entry Machine State]: https://github.com/limine-bootloader/limine/blob/v6.x-branch/PROTOCOL.md#entry-memory-layout
 unsafe extern "C" fn main() -> ! {
+    log::info!("Booting Ruel from the Limine entry point...");
+
+    // =============================================================================================
+    // Sanity Checks
+    // =============================================================================================
+    log::trace!("Performing some sanity checks...");
+
     if !raw::base_revision_supported() {
-        // TODO: Print an error message.
+        log::error!(
+            "\
+            The bootloader does not support the base revision expected by the kernel.\n\
+            This happens because you're bootloader is outdated.\n\
+            \n\
+            Please update your bootloader.\
+            ",
+        );
         hcf();
     }
 
@@ -36,8 +51,13 @@ unsafe extern "C" fn main() -> ! {
     let token = unsafe { req::Token::get() };
 
     if token.entry_point().is_none() {
-        // TODO: Print an error message.
-        hcf();
+        log::warn!(
+            "\
+            The bootloader did not respond to the `limine_entry_point` request of the kernel.\n\
+            This is a bug in the bootloader; the protocol requires it to respond to this\n\
+            request.\
+            ",
+        );
     }
 
     todo!();

@@ -18,7 +18,10 @@
 // Features
 //
 #![feature(used_with_arg)]
+#![feature(decl_macro)]
 
 mod boot;
 mod hcf;
+mod log;
+mod sync;
 mod utility;

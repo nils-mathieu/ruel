@@ -3,6 +3,8 @@
 use core::arch::asm;
 use core::panic::PanicInfo;
 
+use crate::log;
+
 /// Halts and catches fire.
 ///
 /// # Panics inside the kernel
@@ -14,7 +16,16 @@ use core::panic::PanicInfo;
 /// is unable to know which parts are safe to use, and which are not.
 #[panic_handler]
 fn panic_routine(_info: &PanicInfo) -> ! {
-    // TODO: Print the panic information through the serial port and to the screen.
+    log::error!(
+        "\
+        The kernel panicked.\n\
+        \n\
+        This is a serious bug in the kernel. Please report it by\n\
+        opening an issue on the GitHub repository.\n\
+        \n\
+        https://github.com/nils-mathieu/ruel/issues/new\n\
+        "
+    );
     hcf();
 }
 
