@@ -6,11 +6,18 @@ authors = ["Nils Mathieu <contact@nils-mathieu.fr>"]
 edition = "2021"
 publish = false
 
+[workspace]
+resolver = "2"
+members = ["crates/limine"]
+
 [features]
 default = ["boot-limine", "debug-serial"]
 
 # Allows the kernel to be booted by a Limine bootloader.
-boot-limine = []
+boot-limine = ["dep:limine"]
 
 # Allows the kernel to print debug messages to the serial port.
 debug-serial = []
+
+[dependencies]
+limine = { path = "crates/limine", optional = true }

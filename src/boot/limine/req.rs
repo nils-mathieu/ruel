@@ -1,11 +1,11 @@
 //! This modules uses the raw structures defined in [`raw`] to provide a more ergonomic interface
 //! to the answers the bootloader provided to the kernel.
 
-use super::raw::*;
+use limine::*;
 
 #[used(linker)]
 static ENTRY_POINT: EntryPointRequest = EntryPointRequest {
-    id: ENTRY_POINT_REQUEST,
+    id: Id::ENTRY_POINT,
     revision: 0,
     response: ResponsePtr::NULL,
     entry: super::main,
@@ -13,35 +13,35 @@ static ENTRY_POINT: EntryPointRequest = EntryPointRequest {
 
 #[used(linker)]
 static BOOTLOADER_INFO: BootloaderInfoRequest = BootloaderInfoRequest {
-    id: BOOTLOADER_INFO_REQUEST,
+    id: Id::BOOTLOADER_INFO,
     revision: 0,
     response: ResponsePtr::NULL,
 };
 
 #[used(linker)]
 static MEMMAP: MemmapRequest = MemmapRequest {
-    id: MEMMAP_REQUEST,
+    id: Id::MEMMAP,
     revision: 0,
     response: ResponsePtr::NULL,
 };
 
 #[used(linker)]
 static HHDM: HhdmRequest = HhdmRequest {
-    id: HHDM_REQUEST,
+    id: Id::HHDM,
     revision: 0,
     response: ResponsePtr::NULL,
 };
 
 #[used(linker)]
 static KERNEL_ADDRESS: KernelAddressRequest = KernelAddressRequest {
-    id: KERNEL_ADDRESS_REQUEST,
+    id: Id::KERNEL_ADDRESS,
     revision: 0,
     response: ResponsePtr::NULL,
 };
 
 #[used(linker)]
 static MODULE: ModuleRequest = ModuleRequest {
-    id: MODULE_REQUEST,
+    id: Id::MODULE,
     revision: 0,
     response: ResponsePtr::NULL,
     internal_module_count: 0,

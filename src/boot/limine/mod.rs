@@ -11,14 +11,14 @@
 use core::alloc::Layout;
 use core::arch::asm;
 
-use self::raw::{MemmapEntry, MemmapType};
+use limine::{File, MemmapEntry, MemmapType};
+
 use crate::cpu::paging::raw::{PageTable, PAGE_GLOBAL, PAGE_WRITE};
 use crate::cpu::paging::{AddressSpace, AddressSpaceContext, MappingError, FOUR_KIB, HHDM_OFFSET};
 use crate::hcf::die;
 use crate::log;
 use crate::mem::{BumpAllocator, OutOfMemory, PhysAddr, VirtAddr};
 
-mod raw;
 mod req;
 
 /// The entry point of the kernel when it is booted by a Limine-compliant bootloader.
@@ -40,7 +40,7 @@ unsafe extern "C" fn main() -> ! {
     // =============================================================================================
     log::trace!("Performing some sanity checks...");
 
-    if !raw::base_revision_supported() {
+    if !limine::base_revision_supported() {
         log::error!(
             "\
             The bootloader does not support the base revision expected by the kernel.\n\
@@ -156,26 +156,27 @@ unsafe extern "C" fn main() -> ! {
 
     let init_program = unsafe { find_init_program(token.modules()) };
 
+    if !init_program.media_type.is_known() {
+        log::warn!(
+            "\
+            The init program is stored on a media type that is not known to the kernel.\n\
+            This is not necessarily a bug in the bootloader; but it is pretty weird.\
+            "
+        );
+    }
+
     log::trace!(
         "\
         Found the init program:\n\
         > Path    = `{}`\n\
         > Cmdline = `{}`\n\
         > Size    = {}\n\
-        > Media   = {}\
+        > Media   = {:?}\
         ",
         unsafe { init_program.path.as_cstr().to_bytes().escape_ascii() },
         unsafe { init_program.cmdline.as_cstr().to_bytes().escape_ascii() },
         crate::utility::HumanByteCount(init_program.size),
-        match init_program.media_type {
-            raw::MEDIA_TYPE_GENERIC => "GENERIC",
-            raw::MEDIA_TYPE_OPTICAL => "OPTICAL",
-            raw::MEDIA_TYPE_TFTP => "TFTP",
-            unknown => {
-                log::warn!("Unknown media type: {}", unknown);
-                "UNKNOWN"
-            }
-        },
+        init_program.media_type,
     );
 
     // =============================================================================================
@@ -475,7 +476,7 @@ fn handle_mapping_error(err: MappingError) -> ! {
 /// # Safety
 ///
 /// The memory referenced by the files must still be around.
-unsafe fn find_init_program<'a>(modules: &[&'a raw::File]) -> &'a raw::File {
+unsafe fn find_init_program<'a>(modules: &[&'a File]) -> &'a File {
     let mut found = None;
 
     for module in modules {
