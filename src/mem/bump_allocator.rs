@@ -27,6 +27,8 @@ use super::OutOfMemory;
 pub struct BumpAllocator {
     base: PhysAddr,
     top: PhysAddr,
+
+    original_top: PhysAddr,
 }
 
 impl BumpAllocator {
@@ -54,7 +56,27 @@ impl BumpAllocator {
             "attempted to create a BumpAllocator with base > top",
         );
 
-        Self { base, top }
+        Self {
+            base,
+            top,
+            original_top: top,
+        }
+    }
+
+    /// Returns the current top of the bump allocator.
+    ///
+    /// This is the moving pointer that points to the next free byte in the memory region. Note
+    /// that this does not necessarily mean that the next byte will be used for an allocation,
+    /// as it might not be properly aligned.
+    #[inline]
+    pub fn top(&self) -> PhysAddr {
+        self.top
+    }
+
+    /// Returns the original top of the bump allocator.
+    #[inline]
+    pub fn original_top(&self) -> u64 {
+        self.original_top
     }
 
     /// Allocates memory for the provided layout.

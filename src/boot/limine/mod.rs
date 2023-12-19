@@ -10,6 +10,7 @@
 
 use core::alloc::Layout;
 use core::arch::asm;
+use core::mem::{size_of, MaybeUninit};
 
 use limine::{File, MemmapEntry, MemmapType};
 use x86_64::{Efer, PageTable, PageTableEntry, PhysAddr, VirtAddr};
@@ -17,7 +18,8 @@ use x86_64::{Efer, PageTable, PageTableEntry, PhysAddr, VirtAddr};
 use crate::cpu::paging::{AddressSpace, AddressSpaceContext, MappingError, FOUR_KIB, HHDM_OFFSET};
 use crate::hcf::die;
 use crate::log;
-use crate::mem::{BumpAllocator, OutOfMemory};
+use crate::mem::{BumpAllocator, MemoryAllocator, OutOfMemory};
+use crate::utility::{ArrayVec, HumanByteCount};
 
 mod req;
 
@@ -102,7 +104,8 @@ unsafe extern "C" fn main() -> ! {
         die();
     }
 
-    validate_memory_map(memory_map);
+    let mut usable_memory = UsableMemoryVec::new_array();
+    validate_and_find_usable_segments(memory_map, &mut usable_memory);
 
     let bootloader_hhdm = token
         .hhdm()
@@ -175,7 +178,7 @@ unsafe extern "C" fn main() -> ! {
         ",
         unsafe { init_program.path.as_cstr().to_bytes().escape_ascii() },
         unsafe { init_program.cmdline.as_cstr().to_bytes().escape_ascii() },
-        crate::utility::HumanByteCount(init_program.size),
+        HumanByteCount(init_program.size),
         init_program.media_type,
     );
 
@@ -190,7 +193,7 @@ unsafe extern "C" fn main() -> ! {
         "The bootstrap allocator will use the memory segment {:#x}..{:#x} ({})",
         largest_usable_segment.base,
         largest_usable_segment.base + largest_usable_segment.length,
-        crate::utility::HumanByteCount(largest_usable_segment.length),
+        HumanByteCount(largest_usable_segment.length),
     );
 
     // SAFETY:
@@ -243,6 +246,7 @@ unsafe extern "C" fn main() -> ! {
             ToNewStack {
                 bootstrap_allocator,
                 kernel_stack_top,
+                usable_memory,
             },
         );
     }
@@ -266,6 +270,12 @@ unsafe extern "C" fn main() -> ! {
     }
 }
 
+/// The type used to store the usable memory.
+///
+/// This type accomodates for up to 8 usable memory segments. This should be fine in most cases,
+/// as there are usually 2-4 segments.
+type UsableMemoryVec = ArrayVec<[MaybeUninit<MemmapEntry>; 8]>;
+
 /// A structure that's passed from the bootloader's stack to the kernel's stack.
 ///
 /// Because virtual-memory references are invalidated, we need to copy everything we need
@@ -275,6 +285,13 @@ struct ToNewStack {
     bootstrap_allocator: BumpAllocator,
     /// The virtual address of the kernel stack.
     kernel_stack_top: VirtAddr,
+    /// The segments that are usable by the global allocator.
+    ///
+    /// # Remarks
+    ///
+    /// Those segments do include the segment that is currently used by the bootstrap
+    /// allocator. We need to be careful not to mark the pages it has already issued as free.
+    usable_memory: UsableMemoryVec,
 }
 
 /// The function that is called upon entering the new stack and address space.
@@ -282,6 +299,7 @@ extern "C" fn with_new_stack(package: *mut ToNewStack) -> ! {
     let ToNewStack {
         mut bootstrap_allocator,
         kernel_stack_top,
+        usable_memory,
     } = unsafe { package.read() };
 
     // =============================================================================================
@@ -292,6 +310,19 @@ extern "C" fn with_new_stack(package: *mut ToNewStack) -> ! {
         crate::cpu::idt::init(&mut bootstrap_allocator).unwrap_or_else(|_| oom());
         crate::cpu::syscall::init();
     }
+
+    // =============================================================================================
+    // Global Allocator
+    // =============================================================================================
+    log::trace!("Initializing the global allocator...");
+
+    // Compute how many pages needs to be allocated for the global allocator.
+
+    let _allocator = unsafe { initialize_global_allocator(&usable_memory, bootstrap_allocator) };
+
+    // =============================================================================================
+    // Init Program Loading
+    // =============================================================================================
 
     todo!();
 }
@@ -329,8 +360,13 @@ fn find_memory_upper_bound(memory_map: &[&MemmapEntry]) -> PhysAddr {
 ///
 /// If the map is found to break some of the invariants specified in the protocol, the function
 /// stops the CPU.
-fn validate_memory_map(memory_map: &[&MemmapEntry]) {
+fn validate_and_find_usable_segments(
+    memory_map: &[&MemmapEntry],
+    usable_memory: &mut UsableMemoryVec,
+) {
     let mut last_entry: Option<&MemmapEntry> = None;
+    let mut too_many_segments = false;
+    let mut total_usable_memory = 0;
 
     for entry in memory_map {
         if let Some(last_entry) = last_entry {
@@ -381,10 +417,110 @@ fn validate_memory_map(memory_map: &[&MemmapEntry]) {
                     die();
                 }
             }
+
+            if let Some(last_usable) = usable_memory.last_mut() {
+                if last_usable.base + last_usable.length == entry.base {
+                    last_usable.length += entry.length;
+                } else {
+                    too_many_segments |= usable_memory.try_push(**entry).is_err();
+                }
+            } else {
+                too_many_segments |= usable_memory.try_push(**entry).is_err();
+            }
+
+            total_usable_memory += entry.length;
         }
 
         last_entry = Some(entry);
     }
+
+    if too_many_segments {
+        let deteced_memory = usable_memory.iter().map(|entry| entry.length).sum::<u64>();
+
+        log::warn!(
+            "\
+            Seems like the memory on your system is particularly fragmented.\n\
+            Due to the laziness of the kernel's developers, the kenrel is unable\n\
+            to handle more than {} usable memory segments.\n\
+            \n\
+            The kernel will continue to boot, but it will not be able to use all\n\
+            of the available memory.\n\
+            \n\
+            Available memory: {}\n\
+            Memory taken in account: {}\n\
+            \n\
+            If this is a problem for you, please file an issue on the GitHub
+            repository!\n\
+            \n\
+            https://github.com/nils-mathieu/ruel/issues/new\
+            ",
+            usable_memory.capacity(),
+            HumanByteCount(total_usable_memory),
+            HumanByteCount(deteced_memory),
+        );
+    } else {
+        log::info!("Available memory: {}", HumanByteCount(total_usable_memory));
+    }
+}
+
+/// Initializes the global allocator.
+///
+/// # Remarks
+///
+/// This function takes ownership of the bootstrap allocator because after this function has been
+/// called, the bootstrap allocator should no longer be used. The ownership of the remaining
+/// pages is transferred to the global allocator.
+///
+/// # Safety
+///
+/// - The HHDM offset must be initialized.
+///
+/// - The memory map provided must be valid and the ownership of all of its content is transfered
+///   to created allocator.
+unsafe fn initialize_global_allocator(
+    usable_memory: &UsableMemoryVec,
+    mut bootstrap_allocator: BumpAllocator,
+) -> MemoryAllocator {
+    let pages_needed = usable_memory
+        .iter()
+        .map(|e| e.length as usize / FOUR_KIB)
+        .sum::<usize>();
+
+    log::trace!(
+        "The global allocator will need {} pages to store the free list ({}).",
+        pages_needed,
+        HumanByteCount(pages_needed as u64 * size_of::<PhysAddr>() as u64),
+    );
+
+    let mut allocator = unsafe {
+        MemoryAllocator::empty(&mut bootstrap_allocator, pages_needed).unwrap_or_else(|_| oom())
+    };
+
+    // Compute the range of pages that have been used by the bootstrap allocator to avoid
+    // pushing them to the free list later on.
+    let used_start = x86_64::page_align_down(bootstrap_allocator.top() as usize) as PhysAddr;
+    let used_stop = bootstrap_allocator.original_top();
+
+    log::trace!(
+        "Total memory used during boot: {}",
+        HumanByteCount(used_stop - used_start)
+    );
+
+    for entry in usable_memory {
+        let mut base = entry.base;
+        let mut length = entry.length;
+
+        while length != 0 {
+            if base < used_start || base >= used_stop {
+                unsafe { allocator.assume_available(base) };
+            }
+
+            base += FOUR_KIB as u64;
+            length -= FOUR_KIB as u64;
+        }
+    }
+
+    allocator
 }
 
 /// Creates the address space of the kernel.

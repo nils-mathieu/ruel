@@ -5,3 +5,6 @@ pub use self::display::*;
 
 mod guards;
 pub use self::guards::*;
+
+pub mod array_vec;
+pub use self::array_vec::ArrayVec;

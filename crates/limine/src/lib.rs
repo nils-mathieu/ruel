@@ -179,7 +179,7 @@ pub type EntryPoint = unsafe extern "C" fn() -> !;
 /// This is useful for kernels that support multiple boot protocols and want to use distinct
 /// entry points for each of them.
 #[repr(C)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct EntryPointRequest {
     /// Must be [`Id::ENTRY_POINT`].
     pub id: Id,
@@ -202,7 +202,7 @@ pub struct EntryPointRequest {
 /// signal the kernel that the request was successful (which is given by the fact that the
 /// code can even run).
 #[repr(C)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct EntryPointResponse {
     /// The revision number of the response.
     ///
@@ -212,7 +212,7 @@ pub struct EntryPointResponse {
 
 /// Requests the bootloader to provide a map of the physical memory available on the system.
 #[repr(C)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct MemmapRequest {
     /// Must be [`Id::MEMMAP`].
     pub id: Id,
@@ -228,7 +228,7 @@ pub struct MemmapRequest {
 
 /// The response to the [`MemmapRequest`].
 #[repr(C)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct MemmapResponse {
     /// The revision number of the response.
     ///
@@ -249,7 +249,7 @@ pub struct MemmapResponse {
 }
 
 /// An memory map entry, available through the [`MemmapRequest`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct MemmapEntry {
     /// The base physical address of the region.
@@ -292,7 +292,7 @@ create_loose_enum! {
 /// Requests the bootloader to provide the address of the HHDM (Higher-Half Direct Map) that it
 /// has created for the kernel.
 #[repr(C)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct HhdmRequest {
     /// Must be [`Id::HHDM`].
     pub id: Id,
@@ -308,7 +308,7 @@ pub struct HhdmRequest {
 
 /// The response to the [`HhdmRequest`].
 #[repr(C)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct HhdmResponse {
     /// The revision number of the response.
     ///
@@ -324,7 +324,7 @@ pub struct HhdmResponse {
 
 /// Requests the kernel to provide the address of the kernel's physical and virtual base.
 #[repr(C)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct KernelAddressRequest {
     /// Must be [`Id::KERNEL_ADDRESS`].
     pub id: Id,
@@ -340,7 +340,7 @@ pub struct KernelAddressRequest {
 
 /// The response ot the [`KernelAddressRequest`].
 #[repr(C)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct KernelAddressResponse {
     /// The revision number of the response.
     ///
@@ -382,7 +382,7 @@ bitflags! {
 /// the user requested them, or because the kernel requested them through the internal
 /// module mechanism.
 #[repr(C)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct ModuleRequest {
     /// Must be [`Id::MODULE`].
     pub id: Id,
@@ -412,7 +412,7 @@ pub struct ModuleRequest {
 
 /// The response to the [`ModuleRequest`].
 #[repr(C)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct ModuleResponse {
     /// The revision number of the response.
     ///
@@ -443,7 +443,7 @@ pub struct Uuid(u32, u16, u16, [u8; 8]);
 
 /// A file that was loaded by the bootloader.
 #[repr(C)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct File {
     /// The revision number of the file.
     ///
