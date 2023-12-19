@@ -40,6 +40,12 @@ impl<T> OnceLock<T> {
         unsafe { (*self.value.get()).assume_init_ref() }
     }
 
+    /// Returns whether the [`OnceLock<T>`] instance has been initialized.
+    #[inline]
+    pub fn is_initialized(&self) -> bool {
+        self.state.load(Acquire) == State::Initialized
+    }
+
     /// Attempts to get the inner value of this [`OnceLock<T>`] instance.
     ///
     /// # Returns
@@ -48,13 +54,27 @@ impl<T> OnceLock<T> {
     /// is returned.
     #[inline]
     pub fn get(&self) -> Option<&T> {
-        if self.state.load(Acquire) == State::Initialized {
+        if self.is_initialized() {
             // SAFETY:
             //  Because we just used Acquire ordering, we know for sure that the value is
             //  actually initialized.
             Some(unsafe { self.get_unchecked() })
         } else {
             None
+        }
+    }
+
+    /// Sets the inner value of this [`OnceLock<T>`] instance.
+    ///
+    /// If the value was already initialized, the input is returned as an error.
+    pub fn set(&self, value: T) -> Result<(), T> {
+        let mut slot = Some(value);
+
+        self.get_or_init(|| unsafe { slot.take().unwrap_unchecked() });
+
+        match slot {
+            Some(value) => Err(value),
+            None => Ok(()),
         }
     }
 

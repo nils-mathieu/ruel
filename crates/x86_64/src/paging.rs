@@ -5,7 +5,7 @@ use bitflags::bitflags;
 use crate::{PhysAddr, VirtAddr};
 
 /// A page table.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 #[repr(align(4096))]
 pub struct PageTable([PageTableEntry; 512]);
 
@@ -47,6 +47,12 @@ impl PageTableIndex {
     #[inline]
     pub fn index(self) -> usize {
         self.0 as usize
+    }
+
+    /// Returns an iterator over all possible [`PageTableIndex`] values.
+    #[inline]
+    pub fn iter() -> impl Clone + ExactSizeIterator<Item = Self> {
+        (0..512).map(|i| Self(i as u16))
     }
 }
 
@@ -93,6 +99,21 @@ bitflags! {
         /// This is useful for pages that are shared between multiple address spaces, such as the kernel's
         /// code and data.
         const GLOBAL = 1 << 8;
+
+        const OS_BIT_9 = 1 << 9;
+        const OS_BIT_10 = 1 << 10;
+        const OS_BIT_11 = 1 << 11;
+        const OS_BIT_52 = 1 << 52;
+        const OS_BIT_53 = 1 << 53;
+        const OS_BIT_54 = 1 << 54;
+        const OS_BIT_55 = 1 << 55;
+        const OS_BIT_56 = 1 << 56;
+        const OS_BIT_57 = 1 << 57;
+        const OS_BIT_58 = 1 << 58;
+        const OS_BIT_59 = 1 << 59;
+        const OS_BIT_60 = 1 << 60;
+        const OS_BIT_61 = 1 << 61;
+        const OS_BIT_62 = 1 << 62;
     }
 }
 

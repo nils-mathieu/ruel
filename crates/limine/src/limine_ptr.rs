@@ -20,6 +20,12 @@ impl<T> LiminePtr<T> {
 }
 
 impl<T: ?Sized> LiminePtr<T> {
+    /// Returns the inner raw pointer.
+    #[inline]
+    pub const fn as_ptr(self) -> *const T {
+        self.0
+    }
+
     /// Returns whether the pointer is null.
     #[inline]
     pub fn is_null(self) -> bool {

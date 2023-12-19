@@ -49,6 +49,23 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
         Ok(Self { context, root })
     }
 
+    /// Returns the physical address of the L4 table of this address space.
+    #[inline]
+    pub fn l4_table(&self) -> PhysAddr {
+        self.root
+    }
+
+    /// Returns the inner page table.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the page table is not modified in a way that would
+    /// break invariants of the [`AddressSpace`].
+    #[inline]
+    pub unsafe fn table_mut(&mut self) -> &mut PageTable {
+        unsafe { &mut *(self.context.physical_to_virtual(self.root) as *mut PageTable) }
+    }
+
     /// Returns the 4KiB page table entry for the provided virtual address.
     ///
     /// # Arguments
@@ -317,6 +334,44 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
         Ok(())
     }
 
+    /// Allocates the requested amount of memory, mapping it to the requested virtual addresses.
+    ///
+    /// The provided `callback` function can be used to initialize the allocated memory.
+    ///
+    /// # Panics
+    ///
+    /// In debug mode, this function panics if any of the input addresses are not properly
+    /// aligned to a 4KiB page.
+    pub fn allocate_range(
+        &mut self,
+        mut virt: VirtAddr,
+        mut length: usize,
+        flags: PageTableEntry,
+        mut callback: impl FnMut(VirtAddr, *mut u8),
+    ) -> Result<(), MappingError> {
+        debug_assert!(
+            virt % FOUR_KIB == 0,
+            "The virtual address is not aligned to a 4KiB page.",
+        );
+        debug_assert!(
+            length % FOUR_KIB == 0,
+            "The length is not a multiple of 4KiB.",
+        );
+
+        while length != 0 {
+            let phys = self.context.allocate_page()?;
+            let dst = unsafe { self.context.physical_to_virtual(phys) as *mut u8 };
+            callback(virt, dst);
+
+            self.map_4kib(virt, phys, flags)?;
+
+            virt += FOUR_KIB;
+            length -= FOUR_KIB;
+        }
+
+        Ok(())
+    }
+
     /// Leaks this [`AddressSpace`], exposing the underlying root L4 page table.
     #[inline]
     pub fn leak(self) -> PhysAddr {
@@ -401,3 +456,10 @@ unsafe fn get_directory<'a>(
         }
     }
 }
+
+/// A bit that's set for kernel pages. Used when copying the kernel address space to a process.
+pub const KERNEL_BIT: PageTableEntry = PageTableEntry::OS_BIT_9;
+
+/// A bit that's set for pages that are *not* owned by the process, meaning that they must not be
+/// given back to the kernel when the process is destroyed.
+pub const NOT_OWNED_BIT: PageTableEntry = PageTableEntry::OS_BIT_10;

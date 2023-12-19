@@ -30,5 +30,6 @@ mod global;
 mod hcf;
 mod linker;
 mod log;
+mod process;
 mod sync;
 mod utility;

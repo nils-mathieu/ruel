@@ -9,6 +9,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "327762f6e5a765692301e5bb513e0d9fef63be86bbc14528052b1cd3e6f03e07"
 
 [[package]]
+name = "elf"
+version = "0.0.1"
+dependencies = [
+ "bitflags",
+]
+
+[[package]]
 name = "limine"
 version = "0.0.1"
 dependencies = [
@@ -19,6 +26,7 @@ dependencies = [
 name = "ruel"
 version = "0.0.1"
 dependencies = [
+ "elf",
  "limine",
  "x86_64",
 ]

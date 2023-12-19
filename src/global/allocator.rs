@@ -59,14 +59,7 @@ impl MemoryAllocator {
 }
 
 /// Allocates a slice using the provided allocator.
-///
-/// # Safety
-///
-/// The caller must ensure that the global HHDM has been initialized.
-unsafe fn allocate_slice<T>(
-    allocator: &mut BumpAllocator,
-    len: usize,
-) -> Result<*mut [T], OutOfMemory> {
+fn allocate_slice<T>(allocator: &mut BumpAllocator, len: usize) -> Result<*mut [T], OutOfMemory> {
     let align = align_of::<T>();
     let size = size_of::<T>()
         .checked_next_multiple_of(align)
@@ -75,7 +68,7 @@ unsafe fn allocate_slice<T>(
 
     let ptr = allocator.allocate(layout).map_err(|_| OutOfMemory)? as usize + HHDM_OFFSET;
 
-    Ok(unsafe { core::ptr::slice_from_raw_parts_mut(ptr as *mut T, len) })
+    Ok(core::ptr::slice_from_raw_parts_mut(ptr as *mut T, len))
 }
 
 /// An error returned when an allocation fails because the system is out of memory.

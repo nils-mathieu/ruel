@@ -15,10 +15,14 @@ use core::mem::{size_of, MaybeUninit};
 use limine::{File, MemmapEntry, MemmapType};
 use x86_64::{Efer, PageTable, PageTableEntry, PhysAddr, VirtAddr};
 
-use crate::cpu::paging::{AddressSpace, AddressSpaceContext, MappingError, FOUR_KIB, HHDM_OFFSET};
-use crate::global::{MemoryAllocator, OutOfMemory};
+use crate::boot::{handle_mapping_error, oom};
+use crate::cpu::paging::{
+    AddressSpace, AddressSpaceContext, FOUR_KIB, HHDM_OFFSET, KERNEL_BIT, NOT_OWNED_BIT,
+};
+use crate::global::{Global, MemoryAllocator, OutOfMemory};
 use crate::hcf::die;
 use crate::log;
+use crate::sync::Mutex;
 use crate::utility::{ArrayVec, BumpAllocator, HumanByteCount};
 
 mod req;
@@ -182,6 +186,10 @@ unsafe extern "C" fn main() -> ! {
         init_program.media_type,
     );
 
+    // Save the init program's physical address so that we can load it later on (even if the
+    // HHDM changes).
+    let init_program_phys_addr = init_program.address.as_ptr() as u64 - bootloader_hhdm;
+
     // =============================================================================================
     // Bootstrap Allocator
     // =============================================================================================
@@ -205,6 +213,22 @@ unsafe extern "C" fn main() -> ! {
             largest_usable_segment.base + largest_usable_segment.length,
         )
     };
+
+    // Save the init program's command-line arguments so that we can use them later, even when
+    // the bootloader reclaimable memory region is no longer available.
+    let init_program_cmdline = unsafe { init_program.cmdline.as_cstr().to_bytes() };
+
+    let init_program_cmdline_phys_addr = bootstrap_allocator
+        .allocate(Layout::for_value(init_program_cmdline))
+        .unwrap_or_else(|_| oom());
+
+    unsafe {
+        core::ptr::copy_nonoverlapping(
+            init_program_cmdline.as_ptr(),
+            (init_program_cmdline_phys_addr + bootloader_hhdm) as *mut u8,
+            init_program_cmdline.len(),
+        );
+    }
 
     // =============================================================================================
     // Address Space & Kernel Stack
@@ -247,6 +271,16 @@ unsafe extern "C" fn main() -> ! {
                 bootstrap_allocator,
                 kernel_stack_top,
                 usable_memory,
+                kernel_physical_base: kernel_address.physical_base,
+                init_process: core::slice::from_raw_parts(
+                    (init_program_phys_addr as usize + HHDM_OFFSET) as *const u8,
+                    init_program.size as usize,
+                ),
+                init_process_cmdline: core::slice::from_raw_parts(
+                    (init_program_cmdline_phys_addr as usize + HHDM_OFFSET) as *const u8,
+                    init_program_cmdline.len(),
+                ),
+                address_space,
             },
         );
     }
@@ -292,6 +326,16 @@ struct ToNewStack {
     /// Those segments do include the segment that is currently used by the bootstrap
     /// allocator. We need to be careful not to mark the pages it has already issued as free.
     usable_memory: UsableMemoryVec,
+    /// The physical address of the kernel image.
+    kernel_physical_base: PhysAddr,
+
+    /// The init process.
+    init_process: &'static [u8],
+    /// The command-line arguments of the init process.
+    init_process_cmdline: &'static [u8],
+
+    /// The physical address of the kernel's L4 page table.
+    address_space: PhysAddr,
 }
 
 /// The function that is called upon entering the new stack and address space.
@@ -300,6 +344,10 @@ extern "C" fn with_new_stack(package: *mut ToNewStack) -> ! {
         mut bootstrap_allocator,
         kernel_stack_top,
         usable_memory,
+        kernel_physical_base,
+        init_process,
+        init_process_cmdline,
+        address_space,
     } = unsafe { package.read() };
 
     // =============================================================================================
@@ -312,19 +360,42 @@ extern "C" fn with_new_stack(package: *mut ToNewStack) -> ! {
     }
 
     // =============================================================================================
-    // Global Allocator
+    // Global Kernel State
     // =============================================================================================
-    log::trace!("Initializing the global allocator...");
+    let allocator = unsafe { initialize_global_allocator(&usable_memory, bootstrap_allocator) };
 
-    // Compute how many pages needs to be allocated for the global allocator.
-
-    let _allocator = unsafe { initialize_global_allocator(&usable_memory, bootstrap_allocator) };
+    log::trace!("Initializing the global kernel state...");
+    crate::global::init(Global {
+        allocator: Mutex::new(allocator),
+        kernel_physical_base,
+        address_space,
+    });
 
     // =============================================================================================
     // Init Program Loading
     // =============================================================================================
+    let process = crate::boot::init_process::load_any(init_process, init_process_cmdline);
 
-    todo!();
+    log::info!("Spawning the init process!");
+
+    unsafe {
+        asm!(
+            "
+            mov cr3, {address_space}
+            mov rsp, rdi
+            and rsp, -16
+            mov rbp, rdi
+            sysretq
+            ",
+            in("rcx") process.ip,
+            in("r11") 0x202,
+            // The `load_any` function placed the command-line arguments on top of the stack,
+            // meaning that sp points to the beginning of the command-line arguments.
+            in("rdi") process.sp,
+            address_space = in(reg) process.address_space.l4_table(),
+            options(noreturn)
+        );
+    }
 }
 
 /// Finds the largest usable memory segment in the memory map.
@@ -481,6 +552,8 @@ unsafe fn initialize_global_allocator(
     usable_memory: &UsableMemoryVec,
     mut bootstrap_allocator: BumpAllocator,
 ) -> MemoryAllocator {
+    log::trace!("Initializing the global allocator...");
+
     let pages_needed = usable_memory
         .iter()
         .map(|e| e.length as usize / FOUR_KIB)
@@ -585,30 +658,25 @@ pub unsafe fn create_kernel_address_space(
             HHDM_OFFSET,
             0,
             memory_upper_bound as usize,
-            PageTableEntry::WRITABLE | PageTableEntry::GLOBAL,
+            PageTableEntry::WRITABLE | PageTableEntry::GLOBAL | NOT_OWNED_BIT | KERNEL_BIT,
         )
         .unwrap_or_else(|err| handle_mapping_error(err));
+
+    let start_page = x86_64::page_align_down(crate::linker::kernel_image_begin() as VirtAddr);
+    let stop_page = x86_64::page_align_up(crate::linker::kernel_image_end() as VirtAddr);
 
     // Map the kernel's physical memory into the address space, at the position that's specified
     // in the linker script.
     address_space
         .map_range(
-            x86_64::page_align_down(crate::linker::kernel_image_begin() as VirtAddr),
+            start_page,
             x86_64::page_align_down(kernel_physical_base as usize) as PhysAddr,
-            x86_64::page_align_up(crate::linker::kernel_image_size()),
-            PageTableEntry::WRITABLE | PageTableEntry::GLOBAL,
+            stop_page - start_page,
+            PageTableEntry::WRITABLE | PageTableEntry::GLOBAL | NOT_OWNED_BIT | KERNEL_BIT,
         )
         .unwrap_or_else(|err| handle_mapping_error(err));
 
     address_space.leak()
-}
-
-/// Handles a mapping error.
-fn handle_mapping_error(err: MappingError) -> ! {
-    match err {
-        MappingError::AlreadyMapped => panic!("attempted to map a page that is already mapped"),
-        MappingError::OutOfMemory => oom(),
-    }
 }
 
 /// Finds the init program in the provided modules.
@@ -658,19 +726,4 @@ fn basename(path: &[u8]) -> &[u8] {
     path.iter()
         .rposition(|&c| c == b'/')
         .map_or(path, |idx| &path[idx + 1..])
-}
-
-/// Prints an helpful message and halts the CPU.
-fn oom() -> ! {
-    log::error!(
-        "\
-        The system ran out of memory while booting up. This is likely due to a bug in the\n\
-        kernel, but your system might just be missing the memory required to boot.\n\
-        \n\
-        If you believe that this is an error, please file an issue on the GitHub repository!\n\
-        \n\
-        https://github.com/nils-mathieu/ruel/issues/new\
-        "
-    );
-    die();
 }

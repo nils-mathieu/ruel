@@ -8,17 +8,21 @@ publish = false
 
 [workspace]
 resolver = "2"
-members = ["crates/limine", "crates/x86_64"]
+members = ["crates/limine", "crates/x86_64", "crates/elf"]
 
 [features]
-default = ["boot-limine", "debug-serial"]
+default = ["boot-limine", "debug-serial", "init-elf"]
 
 # Allows the kernel to be booted by a Limine bootloader.
 boot-limine = ["dep:limine"]
+
+# Allows the kernel to load the init process from an ELF file.
+init-elf = ["dep:elf"]
 
 # Allows the kernel to print debug messages to the serial port.
 debug-serial = []
 
 [dependencies]
 limine = { path = "crates/limine", optional = true }
+elf = { path = "crates/elf", optional = true }
 x86_64 = { path = "crates/x86_64" }
