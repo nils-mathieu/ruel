@@ -79,8 +79,12 @@ unsafe impl<T: ?Sized + Sync> Sync for LiminePtr<T> {}
 
 /// A pointer to a response provided by the bootloader.
 ///
+/// # Volatile Semantics
+///
 /// Reads the inner value are volatile, so that the compiler doesn't attempt to optimize those
-/// away.
+/// away. This is require because the bootloader will write to this value at *load time*, meaning
+/// that the compiler has no idea that the value will change and will assume (as it should) that
+/// the value never actually changes.
 #[derive(Debug)]
 pub struct ResponsePtr<T: ?Sized>(LiminePtr<T>);
 
