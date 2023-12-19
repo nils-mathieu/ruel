@@ -2,7 +2,7 @@ use core::alloc::Layout;
 
 use x86_64::PhysAddr;
 
-use super::OutOfMemory;
+use crate::global::OutOfMemory;
 
 /// A memory allocator that uses a pointer bumping strategy to allocate new memory pages.
 ///

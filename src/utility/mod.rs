@@ -8,3 +8,6 @@ pub use self::guards::*;
 
 pub mod array_vec;
 pub use self::array_vec::ArrayVec;
+
+mod bump_allocator;
+pub use self::bump_allocator::*;

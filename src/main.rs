@@ -26,9 +26,9 @@
 
 mod boot;
 mod cpu;
+mod global;
 mod hcf;
 mod linker;
 mod log;
-mod mem;
 mod sync;
 mod utility;

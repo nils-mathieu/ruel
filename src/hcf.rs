@@ -1,7 +1,8 @@
 //! This module implements the panic handler for the whole system. See [`panic_routine`].
 
-use core::arch::asm;
 use core::panic::PanicInfo;
+
+use x86_64::{cli, hlt};
 
 use crate::log;
 
@@ -45,15 +46,8 @@ fn panic_routine(info: &PanicInfo) -> ! {
 
 /// Stops the CPU from receiving interrupts and halts forever.
 pub fn die() -> ! {
-    unsafe {
-        asm!(
-            "
-            cli
-            2:
-            hlt
-            jmp 2b
-            ",
-            options(noreturn, nomem, nostack, preserves_flags)
-        );
+    cli();
+    loop {
+        hlt();
     }
 }

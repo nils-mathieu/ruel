@@ -75,6 +75,7 @@ impl<A: ?Sized + UninitArray> ArrayVec<A> {
     ///
     /// This function panics if the vector is already full.
     #[inline]
+    #[track_caller]
     pub fn push(&mut self, item: A::Item) {
         match self.try_push(item) {
             Ok(()) => {}

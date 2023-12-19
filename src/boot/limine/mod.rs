@@ -16,10 +16,10 @@ use limine::{File, MemmapEntry, MemmapType};
 use x86_64::{Efer, PageTable, PageTableEntry, PhysAddr, VirtAddr};
 
 use crate::cpu::paging::{AddressSpace, AddressSpaceContext, MappingError, FOUR_KIB, HHDM_OFFSET};
+use crate::global::{MemoryAllocator, OutOfMemory};
 use crate::hcf::die;
 use crate::log;
-use crate::mem::{BumpAllocator, MemoryAllocator, OutOfMemory};
-use crate::utility::{ArrayVec, HumanByteCount};
+use crate::utility::{ArrayVec, BumpAllocator, HumanByteCount};
 
 mod req;
 

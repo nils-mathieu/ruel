@@ -11,8 +11,9 @@ use x86_64::{Exception, GateDesc, Idt};
 
 use super::gdt::{DOUBLE_FAULT_IST_INDEX, KERNEL_CODE_SELECTOR};
 use super::paging::HHDM_OFFSET;
+use crate::global::OutOfMemory;
 use crate::log;
-use crate::mem::{BumpAllocator, OutOfMemory};
+use crate::utility::BumpAllocator;
 
 mod handlers;
 

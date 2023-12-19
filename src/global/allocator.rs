@@ -4,9 +4,7 @@ use core::mem::{align_of, size_of, MaybeUninit};
 use x86_64::PhysAddr;
 
 use crate::cpu::paging::HHDM_OFFSET;
-use crate::utility::ArrayVec;
-
-use super::{BumpAllocator, OutOfMemory};
+use crate::utility::{ArrayVec, BumpAllocator};
 
 /// A memory allocator that keeps track of a list of free regions.
 pub struct MemoryAllocator {
@@ -40,6 +38,7 @@ impl MemoryAllocator {
     /// The allocator takes logical ownership of the physical page. Accessing it without having
     /// allocated it becomes unsafe and may cause conflicts with other parts of the system.
     pub unsafe fn assume_available(&mut self, page: PhysAddr) {
+        debug_assert!(page & 0xFFF == 0);
         self.free_list.push(page);
     }
 
@@ -54,6 +53,7 @@ impl MemoryAllocator {
     ///
     /// The provided page must have been allocated previously by this allocator.
     pub unsafe fn deallocate(&mut self, page: PhysAddr) {
+        debug_assert!(page & 0xFFF == 0);
         self.free_list.push(page);
     }
 }
@@ -77,3 +77,7 @@ unsafe fn allocate_slice<T>(
 
     Ok(unsafe { core::ptr::slice_from_raw_parts_mut(ptr as *mut T, len) })
 }
+
+/// An error returned when an allocation fails because the system is out of memory.
+#[derive(Debug, Clone, Copy)]
+pub struct OutOfMemory;

@@ -1,6 +1,6 @@
 use x86_64::{PageTable, PageTableEntry, PageTableIndex, PhysAddr, VirtAddr};
 
-use crate::mem::OutOfMemory;
+use crate::global::OutOfMemory;
 
 /// The size of a 4KiB page.
 pub const FOUR_KIB: usize = 4 * 1024;

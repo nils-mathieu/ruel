@@ -6,8 +6,9 @@ use core::mem::size_of;
 use x86_64::{IstIndex, Ring, SegmentFlags, SegmentSelector, TablePtr, TaskStateSegment, VirtAddr};
 
 use crate::cpu::paging::HHDM_OFFSET;
+use crate::global::OutOfMemory;
 use crate::log;
-use crate::mem::{BumpAllocator, OutOfMemory};
+use crate::utility::BumpAllocator;
 
 use super::paging::FOUR_KIB;
 
