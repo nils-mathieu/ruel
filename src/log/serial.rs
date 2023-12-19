@@ -1,4 +1,4 @@
-use core::arch::asm;
+use x86_64::{inb, outb};
 
 use crate::sync::OnceLock;
 
@@ -187,34 +187,4 @@ fn finish_handshake() {
     unsafe {
         outb(MODEM_CONTROL, DATA_TERMINAL_READY | REQUEST_TO_SEND);
     }
-}
-
-/// Writes a byte to the provided I/O port.
-#[inline]
-unsafe fn outb(port: u16, value: u8) {
-    unsafe {
-        asm!(
-            "out dx, al",
-            in("dx") port,
-            in("al") value,
-            options(nomem, nostack, preserves_flags),
-        );
-    }
-}
-
-/// Reads a byte from the provided I/O port.
-#[inline]
-unsafe fn inb(port: u16) -> u8 {
-    let value: u8;
-
-    unsafe {
-        asm!(
-            "in al, dx",
-            in("dx") port,
-            out("al") value,
-            options(nomem, nostack, preserves_flags),
-        );
-    }
-
-    value
 }

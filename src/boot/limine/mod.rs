@@ -12,12 +12,12 @@ use core::alloc::Layout;
 use core::arch::asm;
 
 use limine::{File, MemmapEntry, MemmapType};
+use x86_64::{Efer, PageTable, PageTableEntry, PhysAddr, VirtAddr};
 
-use crate::cpu::paging::raw::{PageTable, PAGE_GLOBAL, PAGE_WRITE};
 use crate::cpu::paging::{AddressSpace, AddressSpaceContext, MappingError, FOUR_KIB, HHDM_OFFSET};
 use crate::hcf::die;
 use crate::log;
-use crate::mem::{BumpAllocator, OutOfMemory, PhysAddr, VirtAddr};
+use crate::mem::{BumpAllocator, OutOfMemory};
 
 mod req;
 
@@ -208,6 +208,10 @@ unsafe extern "C" fn main() -> ! {
     // =============================================================================================
     log::trace!("Creating the kernel address space...");
 
+    // Make sure that the NO_EXECUTE bit on pages is available.
+    Efer::read().union(Efer::NO_EXECUTE).write();
+
+    // Create the kernel's address space.
     let address_space = unsafe {
         create_kernel_address_space(
             &mut bootstrap_allocator,
@@ -445,7 +449,7 @@ pub unsafe fn create_kernel_address_space(
             HHDM_OFFSET,
             0,
             memory_upper_bound as usize,
-            PAGE_WRITE | PAGE_GLOBAL,
+            PageTableEntry::WRITABLE | PageTableEntry::GLOBAL,
         )
         .unwrap_or_else(|err| handle_mapping_error(err));
 
@@ -453,10 +457,10 @@ pub unsafe fn create_kernel_address_space(
     // in the linker script.
     address_space
         .map_range(
-            crate::cpu::paging::raw::align_down(crate::linker::kernel_image_begin() as VirtAddr),
-            crate::cpu::paging::raw::align_down(kernel_physical_base as usize) as PhysAddr,
-            crate::cpu::paging::raw::align_up(crate::linker::kernel_image_size()),
-            PAGE_WRITE | PAGE_GLOBAL,
+            x86_64::page_align_down(crate::linker::kernel_image_begin() as VirtAddr),
+            x86_64::page_align_down(kernel_physical_base as usize) as PhysAddr,
+            x86_64::page_align_up(crate::linker::kernel_image_size()),
+            PageTableEntry::WRITABLE | PageTableEntry::GLOBAL,
         )
         .unwrap_or_else(|err| handle_mapping_error(err));
 

@@ -1,0 +1,9 @@
+[package]
+name = "x86_64"
+version = "0.0.1"
+authors = ["Nils Mathieu <contact@nils-mathieu.fr>"]
+edition = "2021"
+publish = false
+
+[dependencies]
+bitflags = { version = "2", default-features = false }

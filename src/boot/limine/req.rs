@@ -1,5 +1,4 @@
-//! This modules uses the raw structures defined in [`raw`] to provide a more ergonomic interface
-//! to the answers the bootloader provided to the kernel.
+//! Defines the requests that the kernel needs the bootloader to answer to.
 
 use limine::*;
 

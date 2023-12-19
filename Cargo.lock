@@ -20,4 +20,12 @@ name = "ruel"
 version = "0.0.1"
 dependencies = [
  "limine",
+ "x86_64",
+]
+
+[[package]]
+name = "x86_64"
+version = "0.0.1"
+dependencies = [
+ "bitflags",
 ]

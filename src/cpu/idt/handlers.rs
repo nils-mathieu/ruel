@@ -1,6 +1,6 @@
 //! Implementations of the ISRs for the IST of the kernel.
 
-use super::raw::InterruptStackFrame;
+use x86_64::InterruptStackFrame;
 
 pub extern "x86-interrupt" fn division_error(_stack_frame: InterruptStackFrame) {
     panic!("Received a DIVISION_ERROR fault.");

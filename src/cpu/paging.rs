@@ -1,7 +1,32 @@
-use crate::cpu::paging::{raw::*, FOUR_KIB, ONE_GIB, TWO_MIB};
-use crate::mem::*;
+use x86_64::{PageTable, PageTableEntry, PageTableIndex, PhysAddr, VirtAddr};
 
-use super::MappingError;
+use crate::mem::OutOfMemory;
+
+/// The size of a 4KiB page.
+pub const FOUR_KIB: usize = 4 * 1024;
+/// The size of a 2MiB page.
+pub const TWO_MIB: usize = 2 * 1024 * 1024;
+/// The size of a 1GiB page.
+pub const ONE_GIB: usize = 1024 * 1024 * 1024;
+
+/// The offset of the higher-half direct map installed by the kernel during the booting process.
+pub const HHDM_OFFSET: VirtAddr = 0xFFFF_8000_0000_0000;
+
+/// An error that might occur while attempting to map some virtual memory to some physical memory.
+#[derive(Debug, Clone, Copy)]
+pub enum MappingError {
+    /// A page could not be allocated.
+    OutOfMemory,
+    /// The virtual memory is already mapped.
+    AlreadyMapped,
+}
+
+impl From<OutOfMemory> for MappingError {
+    #[inline]
+    fn from(_value: OutOfMemory) -> Self {
+        MappingError::OutOfMemory
+    }
+}
 
 /// Represents an address space.
 pub struct AddressSpace<C> {
@@ -37,7 +62,11 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
     ///
     /// In debug builds, this function panics if the virtual address is not aligned
     /// to a 4KiB page.
-    pub fn get_4kib_entry(&mut self, virt: VirtAddr, flags: u64) -> Result<&mut u64, MappingError> {
+    pub fn get_4kib_entry(
+        &mut self,
+        virt: VirtAddr,
+        flags: PageTableEntry,
+    ) -> Result<&mut PageTableEntry, MappingError> {
         debug_assert!(
             virt % FOUR_KIB == 0,
             "The virtual address is not aligned to a 4KiB page.",
@@ -47,9 +76,9 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
 
         unsafe {
             let l4 = &mut *(self.context.physical_to_virtual(self.root) as *mut PageTable);
-            let l3 = l4.get_directory(p4, flags, &mut self.context)?;
-            let l2 = l3.get_directory(p3, flags, &mut self.context)?;
-            let l1 = l2.get_directory(p2, flags, &mut self.context)?;
+            let l3 = get_directory(l4, p4, flags, &mut self.context)?;
+            let l2 = get_directory(l3, p3, flags, &mut self.context)?;
+            let l1 = get_directory(l2, p2, flags, &mut self.context)?;
             Ok(&mut l1[p1])
         }
     }
@@ -67,7 +96,11 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
     ///
     /// In debug builds, this function panics if the virtual address is not aligned
     /// to a 2MiB page.
-    pub fn get_2mib_entry(&mut self, virt: VirtAddr, flags: u64) -> Result<&mut u64, MappingError> {
+    pub fn get_2mib_entry(
+        &mut self,
+        virt: VirtAddr,
+        flags: PageTableEntry,
+    ) -> Result<&mut PageTableEntry, MappingError> {
         debug_assert!(
             virt % TWO_MIB == 0,
             "The virtual address is not aligned to a 2MiB page.",
@@ -77,8 +110,8 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
 
         unsafe {
             let l4 = &mut *(self.context.physical_to_virtual(self.root) as *mut PageTable);
-            let l3 = l4.get_directory(p4, flags, &mut self.context)?;
-            let l2 = l3.get_directory(p3, flags, &mut self.context)?;
+            let l3 = get_directory(l4, p4, flags, &mut self.context)?;
+            let l2 = get_directory(l3, p3, flags, &mut self.context)?;
             Ok(&mut l2[p2])
         }
     }
@@ -96,7 +129,11 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
     ///
     /// In debug builds, this function panics if the virtual address is not aligned
     /// to a 1GiB page.
-    pub fn get_1gib_entry(&mut self, virt: VirtAddr, flags: u64) -> Result<&mut u64, MappingError> {
+    pub fn get_1gib_entry(
+        &mut self,
+        virt: VirtAddr,
+        flags: PageTableEntry,
+    ) -> Result<&mut PageTableEntry, MappingError> {
         debug_assert!(
             virt % ONE_GIB == 0,
             "The virtual address is not aligned to a 1GiB page.",
@@ -106,7 +143,7 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
 
         unsafe {
             let l4 = &mut *(self.context.physical_to_virtual(self.root) as *mut PageTable);
-            let l3 = l4.get_directory(p4, flags, &mut self.context)?;
+            let l3 = get_directory(l4, p4, flags, &mut self.context)?;
             Ok(&mut l3[p3])
         }
     }
@@ -128,7 +165,7 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
         &mut self,
         virt: VirtAddr,
         phys: PhysAddr,
-        flags: u64,
+        flags: PageTableEntry,
     ) -> Result<(), MappingError> {
         debug_assert!(
             phys % FOUR_KIB as u64 == 0,
@@ -137,11 +174,11 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
 
         let entry = self.get_4kib_entry(virt, flags)?;
 
-        if *entry & PAGE_PRESENT != 0 {
+        if entry.is_present() {
             return Err(MappingError::AlreadyMapped);
         }
 
-        *entry = phys | flags | PAGE_PRESENT;
+        *entry = PageTableEntry::from_address(phys) | flags | PageTableEntry::PRESENT;
 
         Ok(())
     }
@@ -163,7 +200,7 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
         &mut self,
         virt: VirtAddr,
         phys: PhysAddr,
-        flags: u64,
+        flags: PageTableEntry,
     ) -> Result<(), MappingError> {
         debug_assert!(
             phys % TWO_MIB as u64 == 0,
@@ -172,11 +209,14 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
 
         let entry = self.get_2mib_entry(virt, flags)?;
 
-        if *entry & PAGE_PRESENT != 0 {
+        if entry.is_present() {
             return Err(MappingError::AlreadyMapped);
         }
 
-        *entry = phys | flags | PAGE_PRESENT | PAGE_SIZE;
+        *entry = PageTableEntry::from_address(phys)
+            | flags
+            | PageTableEntry::PRESENT
+            | PageTableEntry::SIZE;
 
         Ok(())
     }
@@ -198,7 +238,7 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
         &mut self,
         virt: VirtAddr,
         phys: PhysAddr,
-        flags: u64,
+        flags: PageTableEntry,
     ) -> Result<(), MappingError> {
         debug_assert!(
             phys % ONE_GIB as u64 == 0,
@@ -207,11 +247,14 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
 
         let entry = self.get_1gib_entry(virt, flags)?;
 
-        if *entry & PAGE_PRESENT != 0 {
+        if entry.is_present() {
             return Err(MappingError::AlreadyMapped);
         }
 
-        *entry = phys | flags | PAGE_PRESENT | PAGE_SIZE;
+        *entry = PageTableEntry::from_address(phys)
+            | flags
+            | PageTableEntry::PRESENT
+            | PageTableEntry::SIZE;
 
         Ok(())
     }
@@ -237,7 +280,7 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
         mut virt: VirtAddr,
         mut phys: PhysAddr,
         mut length: usize,
-        flags: u64,
+        flags: PageTableEntry,
     ) -> Result<(), MappingError> {
         debug_assert!(
             virt % FOUR_KIB == 0,
@@ -318,4 +361,43 @@ pub unsafe trait AddressSpaceContext {
     ///
     /// The provided physical address must have been allocated by this context.
     unsafe fn physical_to_virtual(&self, addr: PhysAddr) -> VirtAddr;
+}
+
+/// Returns the physical address of the page directory entry for the provided index.
+///
+/// If the directory is not present, it is allocated.
+///
+/// # Safety
+///
+/// The caller must ensure that the physical addresses that are part of the entries
+/// in this page table have been allocated by the provided context.
+unsafe fn get_directory<'a>(
+    table: &'a mut PageTable,
+    index: PageTableIndex,
+    flags: PageTableEntry,
+    context: &mut impl AddressSpaceContext,
+) -> Result<&'a mut PageTable, MappingError> {
+    if !table[index].is_present() {
+        let new_table = context.allocate_page()?;
+
+        unsafe {
+            let table_ptr = context.physical_to_virtual(new_table) as *mut PageTable;
+            core::ptr::write_bytes(table_ptr, 0x00, 1);
+
+            table[index] =
+                PageTableEntry::from_address(new_table) | flags | PageTableEntry::PRESENT;
+
+            Ok(&mut *table_ptr)
+        }
+    } else if table[index].intersects(PageTableEntry::SIZE) {
+        Err(MappingError::AlreadyMapped)
+    } else {
+        table[index] |= flags;
+
+        unsafe {
+            let table = table[index].address();
+            let table_ptr = context.physical_to_virtual(table) as *mut PageTable;
+            Ok(&mut *table_ptr)
+        }
+    }
 }

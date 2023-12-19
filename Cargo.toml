@@ -8,7 +8,7 @@ publish = false
 
 [workspace]
 resolver = "2"
-members = ["crates/limine"]
+members = ["crates/limine", "crates/x86_64"]
 
 [features]
 default = ["boot-limine", "debug-serial"]
@@ -21,3 +21,4 @@ debug-serial = []
 
 [dependencies]
 limine = { path = "crates/limine", optional = true }
+x86_64 = { path = "crates/x86_64" }

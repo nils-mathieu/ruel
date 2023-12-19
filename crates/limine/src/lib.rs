@@ -4,11 +4,12 @@
 
 #![no_std]
 #![feature(used_with_arg)]
+#![forbid(unsafe_op_in_unsafe_fn)]
 
+use bitflags::bitflags;
 use core::ffi::c_char;
 
 mod limine_ptr;
-use bitflags::bitflags;
 pub use limine_ptr::*;
 
 macro_rules! create_loose_enum {
