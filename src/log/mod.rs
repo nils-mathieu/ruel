@@ -5,6 +5,8 @@
 
 use core::fmt::Arguments;
 
+use ruel_sys::Verbosity;
+
 use crate::sync::Mutex;
 use crate::utility::RestoreInterrupts;
 
@@ -50,32 +52,6 @@ impl<'a> Message<'a> {
     }
 }
 
-/// The verbosity level of a [`Message`].
-///
-/// # Remarks
-///
-/// The ordering of the variants is important, as it is used to determine whether a message should
-/// be printed or not.
-///
-/// Messages that are *more verbose* are *greater* than messages that are *less verbose* (e.g.
-/// `Trace` > `Error`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Verbosity {
-    /// Indicates an error that occurred in the kernel.
-    ///
-    /// Those errors are generally not recoverable, and the kernel will likely has to halt.
-    Error,
-    /// Indicates a warning that occurred in the kernel.
-    ///
-    /// Those are generally errors that the kernel managed to recover from.
-    Warn,
-    /// Notifies the user of something that happened in the kernel. It's not an error, but it's
-    /// good to know.
-    Info,
-    /// Provides verbose information about the kernel's current state and execution.
-    Trace,
-}
-
 /// Creates a new [`Message`] instance with the provided verbosity level and message.
 ///
 /// The provenance information associated with the message is automatically filled with the
@@ -97,20 +73,20 @@ pub macro log($verbosity:expr, $($arg:tt)*) {
 
 /// Logs an error message.
 pub macro error($($arg:tt)*) {
-    $crate::log::log!($crate::log::Verbosity::Error, $($arg)*);
+    $crate::log::log!(::ruel_sys::Verbosity::Error, $($arg)*);
 }
 
 /// Logs a warning message.
 pub macro warn($($arg:tt)*) {
-    $crate::log::log!($crate::log::Verbosity::Warn, $($arg)*);
+    $crate::log::log!(::ruel_sys::Verbosity::Warn, $($arg)*);
 }
 
 /// Logs an information message.
 pub macro info($($arg:tt)*) {
-    $crate::log::log!($crate::log::Verbosity::Info, $($arg)*);
+    $crate::log::log!(::ruel_sys::Verbosity::Info, $($arg)*);
 }
 
 /// Logs a trace message.
 pub macro trace($($arg:tt)*) {
-    $crate::log::log!($crate::log::Verbosity::Trace, $($arg)*);
+    $crate::log::log!(::ruel_sys::Verbosity::Trace, $($arg)*);
 }

@@ -5,7 +5,7 @@ pub use self::allocator::*;
 
 use core::ops::Deref;
 
-use x86_64::PhysAddr;
+use x86_64::{PhysAddr, VirtAddr};
 
 use crate::sync::{Mutex, OnceLock};
 
@@ -28,11 +28,19 @@ static GLOBAL: OnceLock<Global> = OnceLock::new();
 /// # Panics
 ///
 /// This function panics if the global state has already been initialized.
-pub fn init(global: Global) -> GlobalToken {
-    GLOBAL
-        .set(global)
-        .ok()
-        .expect("the global state has already been initialized");
+pub fn init(global: Global, kernel_stack_top: VirtAddr) -> GlobalToken {
+    let mut called = false;
+    GLOBAL.get_or_init(|| {
+        called = true;
+        unsafe { KERNEL_STACK_TOP = kernel_stack_top };
+        global
+    });
+
+    assert!(
+        called,
+        "Attempted to initialize the global state of the kernel twice.",
+    );
+
     GlobalToken(())
 }
 
@@ -55,6 +63,12 @@ impl GlobalToken {
         );
         Self(())
     }
+
+    /// Returns whether the global state has been initialized already.
+    #[inline]
+    pub fn is_initialized() -> bool {
+        GLOBAL.is_initialized()
+    }
 }
 
 impl Deref for GlobalToken {
@@ -65,3 +79,15 @@ impl Deref for GlobalToken {
         unsafe { GLOBAL.get_unchecked() }
     }
 }
+
+/// Contains the stack pointer that the kernel should use when switching from kernel mode
+/// to user mode.
+///
+/// This is required to be in a separate symbol because we need to access it in assembly when
+/// handling system calls.
+///
+/// # Safety
+///
+/// Do not access mutably after initialization; do not access before initialization. Initialization
+/// can be checked through the [`GlobalToken`] type.
+pub static mut KERNEL_STACK_TOP: VirtAddr = 0;

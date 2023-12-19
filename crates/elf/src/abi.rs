@@ -229,6 +229,9 @@ create_loose_enum! {
 
         /// If present, indicates that the the stack should mapped with the given permissions.
         const GNU_STACK = 0x6474e551;
+
+        /// If present, indicates that the the read-only relocations should be made writable.
+        const GNU_RELRO = 0x6474e552;
     }
 }
 

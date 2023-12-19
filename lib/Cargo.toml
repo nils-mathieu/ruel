@@ -1,0 +1,13 @@
+[package]
+name = "ruel-sys"
+version = "0.1.0"
+authors = ["Nils Mathieu <contact@nils-mathieu.fr>"]
+description = "Systems bindings for the Ruel Operating System."
+publish = false
+edition = "2021"
+
+[features]
+default = ["syscalls", "klog"]
+
+syscalls = []
+klog = ["syscalls"]

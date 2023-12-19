@@ -25,6 +25,20 @@ impl IndexMut<PageTableIndex> for PageTable {
     }
 }
 
+impl PageTable {
+    /// Returns the entries of this [`PageTable`].
+    #[inline]
+    pub fn entries(&self) -> &[PageTableEntry; 512] {
+        &self.0
+    }
+
+    /// Returns the entries of this [`PageTable`].
+    #[inline]
+    pub fn entries_mut(&mut self) -> &mut [PageTableEntry; 512] {
+        &mut self.0
+    }
+}
+
 /// An index within a [`PageTable`].
 ///
 /// This allows accessing a [`PageTable`] with no bound checks.
@@ -56,6 +70,12 @@ impl PageTableIndex {
     }
 }
 
+impl core::fmt::Display for PageTableIndex {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Display::fmt(&self.0, f)
+    }
+}
+
 bitflags! {
     /// An entry in a [`PageTable`].
     ///
@@ -73,7 +93,7 @@ bitflags! {
         ///
         /// This is only valid when the entry is not the last level of the page table, and the
         /// size of the final mapping depends on the depth within the page table.
-        const SIZE = 1 << 7;
+        const HUGE_PAGE = 1 << 7;
 
         /// Whether the page can be written to.
         const WRITABLE = 1 << 1;

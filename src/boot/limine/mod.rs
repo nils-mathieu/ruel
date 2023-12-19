@@ -356,7 +356,6 @@ extern "C" fn with_new_stack(package: *mut ToNewStack) -> ! {
     unsafe {
         crate::cpu::gdt::init(&mut bootstrap_allocator, kernel_stack_top).unwrap_or_else(|_| oom());
         crate::cpu::idt::init(&mut bootstrap_allocator).unwrap_or_else(|_| oom());
-        crate::cpu::syscall::init();
     }
 
     // =============================================================================================
@@ -365,11 +364,19 @@ extern "C" fn with_new_stack(package: *mut ToNewStack) -> ! {
     let allocator = unsafe { initialize_global_allocator(&usable_memory, bootstrap_allocator) };
 
     log::trace!("Initializing the global kernel state...");
-    crate::global::init(Global {
-        allocator: Mutex::new(allocator),
-        kernel_physical_base,
-        address_space,
-    });
+    crate::global::init(
+        Global {
+            allocator: Mutex::new(allocator),
+            kernel_physical_base,
+            address_space,
+        },
+        kernel_stack_top,
+    );
+
+    // =============================================================================================
+    // System Calls
+    // =============================================================================================
+    crate::cpu::syscall::init();
 
     // =============================================================================================
     // Init Program Loading

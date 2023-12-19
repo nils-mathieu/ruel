@@ -96,6 +96,7 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
             let l3 = get_directory(l4, p4, flags, &mut self.context)?;
             let l2 = get_directory(l3, p3, flags, &mut self.context)?;
             let l1 = get_directory(l2, p2, flags, &mut self.context)?;
+
             Ok(&mut l1[p1])
         }
     }
@@ -233,7 +234,7 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
         *entry = PageTableEntry::from_address(phys)
             | flags
             | PageTableEntry::PRESENT
-            | PageTableEntry::SIZE;
+            | PageTableEntry::HUGE_PAGE;
 
         Ok(())
     }
@@ -271,7 +272,7 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
         *entry = PageTableEntry::from_address(phys)
             | flags
             | PageTableEntry::PRESENT
-            | PageTableEntry::SIZE;
+            | PageTableEntry::HUGE_PAGE;
 
         Ok(())
     }
@@ -361,9 +362,10 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
         while length != 0 {
             let phys = self.context.allocate_page()?;
             let dst = unsafe { self.context.physical_to_virtual(phys) as *mut u8 };
-            callback(virt, dst);
 
             self.map_4kib(virt, phys, flags)?;
+
+            callback(virt, dst);
 
             virt += FOUR_KIB;
             length -= FOUR_KIB;
@@ -444,10 +446,10 @@ unsafe fn get_directory<'a>(
 
             Ok(&mut *table_ptr)
         }
-    } else if table[index].intersects(PageTableEntry::SIZE) {
+    } else if table[index].intersects(PageTableEntry::HUGE_PAGE) {
         Err(MappingError::AlreadyMapped)
     } else {
-        table[index] |= flags;
+        update_parent(&mut table[index], flags);
 
         unsafe {
             let table = table[index].address();
@@ -455,6 +457,31 @@ unsafe fn get_directory<'a>(
             Ok(&mut *table_ptr)
         }
     }
+}
+
+/// Updates the flags of `parent` such that it keeps the same semantics as before, but with that
+/// of the child entry added.
+fn update_parent(parent: &mut PageTableEntry, child: PageTableEntry) {
+    debug_assert!(!parent.intersects(PageTableEntry::HUGE_PAGE));
+    debug_assert!(parent.intersects(PageTableEntry::PRESENT));
+
+    // const PRESERVED_FLAGS: PageTableEntry =
+    //     PageTableEntry::PRESENT.union(PageTableEntry::PAGE_ADDRESS_MASK);
+    // const AND_FLAGS: PageTableEntry = PageTableEntry::NO_EXECUTE.union(PageTableEntry::GLOBAL);
+    // const OR_FLAGS: PageTableEntry = PageTableEntry::WRITABLE
+    //     .union(PageTableEntry::USER_ACCESSIBLE)
+    //     .union(KERNEL_BIT)
+    //     .union(NOT_OWNED_BIT);
+
+    // let child_and = AND_FLAGS & child;
+    // let parent_and = AND_FLAGS & *parent;
+    // let child_or = OR_FLAGS & child;
+    // let parent_or = OR_FLAGS & *parent;
+    // let parent_preserved = PRESERVED_FLAGS & *parent;
+
+    // *parent = parent_preserved | (parent_and & child_and) | (parent_or | child_or);
+
+    *parent |= child;
 }
 
 /// A bit that's set for kernel pages. Used when copying the kernel address space to a process.

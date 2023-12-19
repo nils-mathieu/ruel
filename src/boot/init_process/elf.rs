@@ -130,7 +130,10 @@ pub fn load(file: &[u8], cmdline: &[u8]) -> Process {
             }
             elf::PhdrType::LOAD => load_segment(phdr, file, &mut process),
             unknown => {
-                log::warn!("Found an unsupported segment type: {unknown:?}");
+                log::warn!(
+                    "Found an unsupported segment type in the init process ELF file: {unknown:?}\n\
+                    This segment will be ignored."
+                );
                 continue;
             }
         }
@@ -144,11 +147,11 @@ pub fn load(file: &[u8], cmdline: &[u8]) -> Process {
     if cmdline.len() + 1 > STACK_SIZE {
         log::error!(
             "\
-        The provided command line is too long and cannot be copied on the init\n\
-        process' stack.\n\
-        \n\
-        How the hell did you manage to do that?\
-        ",
+            The provided command line is too long and cannot be copied on the init\n\
+            process' stack.\n\
+            \n\
+            How the hell did you manage to do that?\
+            ",
         );
         die();
     }
@@ -219,14 +222,16 @@ fn load_segment(segment: &elf::Phdr, file: &[u8], process: &mut Process) {
             }
 
             unsafe {
+                debug_assert!((mem_start - virt) + (file_end - file_start) <= FOUR_KIB);
+
                 core::ptr::copy_nonoverlapping(
                     file.as_ptr().add(file_start),
-                    dst.add(mem_start - page_start),
+                    dst.add(mem_start - virt),
                     file_end - file_start,
                 );
 
                 core::ptr::write_bytes(
-                    dst.add((mem_end - page_start) + (file_end - file_start) - zeroed),
+                    dst.add((mem_end - virt) + (file_end - file_start) - zeroed),
                     0,
                     zeroed,
                 );
@@ -237,10 +242,15 @@ fn load_segment(segment: &elf::Phdr, file: &[u8], process: &mut Process) {
 
 /// Converts an ELF program header flags to page table flags.
 fn phdr_to_page_flags(flags: elf::PhdrFlags) -> PageTableEntry {
+    // FIXME: Figure out why NO_EXECUTE breaks everything.
+
     let mut out = /* PageTableEntry::NO_EXECUTE | */ PageTableEntry::USER_ACCESSIBLE;
 
     if !flags.intersects(elf::PhdrFlags::READABLE) {
-        log::warn!("Found a non-readable segment. The segment will be readable.");
+        log::warn!(
+            "Found a non-readable segment in the init process.\n\
+            The segment will be readable anyway."
+        );
     }
 
     if flags.intersects(elf::PhdrFlags::WRITABLE) {
@@ -256,12 +266,12 @@ fn phdr_to_page_flags(flags: elf::PhdrFlags) -> PageTableEntry {
 
 /// Prints an message indicating that the ELF file is invalid and dies.
 fn panic_parse(err: elf::Error) -> ! {
-    log::trace!("Invalid ELF file: {:?}", err);
+    log::trace!("The init process is an invalid ELF file: {:?}", err);
     die();
 }
 
 /// Prints an message indicating that the ELF file is invalid and dies.
 fn custom_panic_parse(err: &str) -> ! {
-    log::trace!("Invalid ELF file: {}", err);
+    log::trace!("The init process is an invalid ELF file: {}", err);
     die();
 }

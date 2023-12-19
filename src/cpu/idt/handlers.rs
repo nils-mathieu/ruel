@@ -72,19 +72,27 @@ pub extern "x86-interrupt" fn stack_segment_fault(
 }
 
 pub extern "x86-interrupt" fn general_protection_fault(
-    _stack_frame: InterruptStackFrame,
+    frame: InterruptStackFrame,
     error_code: u64,
 ) {
     panic!(
-        "Received a GENERAL_PROTECTION_FAULT fault with error code {:#x}.",
-        error_code
+        "\
+        Received a GENERAL_PROTECTION_FAULT fault with error code {:#x}.\n\
+        > RIP = {:#x}\n\
+        > RSP = {:#x}\
+        ",
+        error_code, frame.ip, frame.sp,
     );
 }
 
-pub extern "x86-interrupt" fn page_fault(_stack_frame: InterruptStackFrame, error_code: u64) {
+pub extern "x86-interrupt" fn page_fault(frame: InterruptStackFrame, error_code: u64) {
     panic!(
-        "Received a PAGE_FAULT fault with error code {:#x}.",
-        error_code
+        "\
+        Received a PAGE_FAULT fault with error code {:#x}.\n\
+        > RIP = {:#x}\n\
+        > RSP = {:#x}\
+        ",
+        error_code, frame.ip, frame.sp,
     );
 }
 

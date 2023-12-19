@@ -64,20 +64,6 @@ impl<T> OnceLock<T> {
         }
     }
 
-    /// Sets the inner value of this [`OnceLock<T>`] instance.
-    ///
-    /// If the value was already initialized, the input is returned as an error.
-    pub fn set(&self, value: T) -> Result<(), T> {
-        let mut slot = Some(value);
-
-        self.get_or_init(|| unsafe { slot.take().unwrap_unchecked() });
-
-        match slot {
-            Some(value) => Err(value),
-            None => Ok(()),
-        }
-    }
-
     /// Returns a reference to the inner value of this [`OnceLock<T>`] instance, initializing it
     /// with the provided function if it is not initialized yet.
     pub fn get_or_init(&self, init: impl FnOnce() -> T) -> &T {

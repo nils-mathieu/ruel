@@ -28,8 +28,13 @@ version = "0.0.1"
 dependencies = [
  "elf",
  "limine",
+ "ruel-sys",
  "x86_64",
 ]
+
+[[package]]
+name = "ruel-sys"
+version = "0.1.0"
 
 [[package]]
 name = "x86_64"
