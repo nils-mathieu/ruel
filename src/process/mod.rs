@@ -8,15 +8,30 @@ use crate::global::{GlobalToken, OutOfMemory};
 /// The last address that is part of userland.
 pub const USERLAND_STOP: VirtAddr = 0x0000_7FFF_FFFF_FFFF;
 
+/// The registers of a paused process.
+#[derive(Debug, Clone, Copy, Default)]
+#[repr(C)]
+pub struct Registers {
+    pub rip: usize,
+    pub rsp: usize,
+    pub rbp: usize,
+    pub rdi: usize,
+}
+
+impl Registers {
+    pub const RIP_INDEX: usize = 0;
+    pub const RSP_INDEX: usize = 1;
+    pub const RBP_INDEX: usize = 2;
+    pub const RDI_INDEX: usize = 3;
+}
+
 /// A process that's running on the system.
 pub struct Process {
     /// The address space of the process.
     pub address_space: AddressSpace<ASContext>,
 
-    /// The current position of the instruction pointer of the process.
-    pub ip: VirtAddr,
-    /// The current position of the stack pointer of the process.
-    pub sp: VirtAddr,
+    /// The current state of the process.
+    pub registers: Registers,
 }
 
 impl Process {
@@ -39,8 +54,7 @@ impl Process {
 
         Ok(Self {
             address_space,
-            ip: 0,
-            sp: 0,
+            registers: Registers::default(),
         })
     }
 }

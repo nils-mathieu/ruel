@@ -22,6 +22,7 @@ use crate::cpu::paging::{
 use crate::global::{Global, MemoryAllocator, OutOfMemory};
 use crate::hcf::die;
 use crate::log;
+use crate::process::Registers;
 use crate::sync::Mutex;
 use crate::utility::{ArrayVec, BumpAllocator, HumanByteCount};
 
@@ -389,17 +390,19 @@ extern "C" fn with_new_stack(package: *mut ToNewStack) -> ! {
         asm!(
             "
             mov cr3, {address_space}
-            mov rsp, rdi
-            and rsp, -16
-            mov rbp, rdi
+            mov rcx, [r11 + 8 * {RIP_INDEX}]
+            mov rsp, [r11 + 8 * {RSP_INDEX}]
+            mov rbp, [r11 + 8 * {RBP_INDEX}]
+            mov rdi, [r11 + 8 * {RDI_INDEX}]
+            mov r11, 0x202
             sysretq
             ",
-            in("rcx") process.ip,
-            in("r11") 0x202,
-            // The `load_any` function placed the command-line arguments on top of the stack,
-            // meaning that sp points to the beginning of the command-line arguments.
-            in("rdi") process.sp,
+            in("r11") &process.registers,
             address_space = in(reg) process.address_space.l4_table(),
+            RIP_INDEX = const Registers::RIP_INDEX,
+            RSP_INDEX = const Registers::RSP_INDEX,
+            RBP_INDEX = const Registers::RBP_INDEX,
+            RDI_INDEX = const Registers::RDI_INDEX,
             options(noreturn)
         );
     }

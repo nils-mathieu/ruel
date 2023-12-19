@@ -28,11 +28,11 @@ impl<'a> Elf<'a> {
     /// Returns the header of the file.
     pub fn header(self) -> Result<&'a Ehdr, Error> {
         if self.bytes.len() < size_of::<Ehdr>() {
-            return Err(Error::TooSmallToBeElf);
+            return Err(Error::HdrOutsideFile);
         }
 
         if self.bytes.as_ptr() as usize % align_of::<Ehdr>() != 0 {
-            return Err(Error::Misaligned);
+            return Err(Error::MisalignedHdr);
         }
 
         unsafe { Ok(&*(self.bytes.as_ptr() as *const Ehdr)) }

@@ -107,7 +107,7 @@ pub fn load(file: &[u8], cmdline: &[u8]) -> Process {
         die();
     }
 
-    process.ip = hdr.entry_point as VirtAddr;
+    process.registers.rip = hdr.entry_point as VirtAddr;
 
     // =============================================================================================
     // LOAD SEGMENTS
@@ -144,13 +144,11 @@ pub fn load(file: &[u8], cmdline: &[u8]) -> Process {
     // =============================================================================================
 
     // Make sure that the command line can be copied into the stack.
-    if cmdline.len() + 1 > STACK_SIZE {
+    if cmdline.len() + 1 >= 4096 {
         log::error!(
             "\
-            The provided command line is too long and cannot be copied on the init\n\
-            process' stack.\n\
-            \n\
-            How the hell did you manage to do that?\
+            The provided command line is larger than 4096 bytes. Larger command-line are not\n\
+            supported by the kernel due to the laziness of the kernel developers.\
             ",
         );
         die();
@@ -166,14 +164,30 @@ pub fn load(file: &[u8], cmdline: &[u8]) -> Process {
     #[allow(clippy::assertions_on_constants)]
     const _: () = assert!(STACK_POS & 0xFFF == 0);
 
+    let cmdline_start = STACK_POS + STACK_SIZE - cmdline.len() - 1;
+
     process
         .address_space
-        .allocate_range(STACK_POS, STACK_SIZE, stack_flags, |_, _| ())
+        .allocate_range(STACK_POS, STACK_SIZE, stack_flags, |virt, dst| {
+            if virt == STACK_POS + STACK_SIZE - 0x1000 {
+                // This is the last page of the stack. Copy the command line into it.
+                unsafe {
+                    core::ptr::copy_nonoverlapping(
+                        cmdline.as_ptr(),
+                        dst.add(cmdline_start - virt),
+                        cmdline.len(),
+                    );
+                    core::ptr::write(dst.add(cmdline_start - virt + cmdline.len()), 0);
+                }
+            }
+        })
         .unwrap_or_else(|err| handle_mapping_error(err));
 
-    // TODO: Copy the command-line arguments on the stack.
-
-    process.sp = STACK_POS + STACK_SIZE;
+    // The command-line string has been copied at the top of the stack, meaning that the stack
+    // starts right after it.
+    process.registers.rsp = cmdline_start & !0xF;
+    process.registers.rbp = cmdline_start & !0xF;
+    process.registers.rdi = cmdline_start;
 
     process
 }
