@@ -107,3 +107,39 @@ pub const LSTAR: u32 = 0xC000_0082;
 
 /// The STAR MSR address.
 pub const STAR: u32 = 0xC000_0081;
+
+bitflags! {
+    /// The RFLAGS registers.
+    #[derive(Default, Debug, Clone, Copy)]
+    #[repr(transparent)]
+    pub struct RFlags: u64 {
+        /// Whether the CPU is currently able to receive hardware interrupts.
+        const INTERRUPTS = 1 << 9;
+    }
+}
+
+impl RFlags {
+    /// Reads the content of the RFLAGS register.
+    #[inline]
+    pub fn read() -> Self {
+        let r: u64;
+
+        unsafe {
+            asm!("pushfq; pop {}", out(reg) r, options(nomem, preserves_flags));
+        }
+
+        Self::from_bits_retain(r)
+    }
+
+    /// Writes to the RFLAGS register.
+    ///
+    /// # Safety
+    ///
+    /// Writing arbitrary values to the RFLAGS register can compromise memory safety.
+    #[inline]
+    pub unsafe fn write(self) {
+        unsafe {
+            asm!("push {}; popfq", in(reg) self.bits(), options(nomem, preserves_flags));
+        }
+    }
+}
