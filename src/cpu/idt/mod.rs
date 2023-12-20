@@ -5,7 +5,7 @@
 
 use core::mem::size_of;
 
-use x86_64::{lidt, Exception, GateDesc, Idt, TablePtr};
+use x86_64::{lidt, Exception, GateDesc, Idt, Ring, TablePtr, VirtAddr};
 
 use super::gdt::{DOUBLE_FAULT_IST_INDEX, KERNEL_CODE_SELECTOR};
 use super::paging::HhdmToken;
@@ -72,36 +72,22 @@ pub fn init(bootstrap_allocator: &mut BumpAllocator, hhdm: HhdmToken) -> Result<
 
 /// Creates a new trap gate.
 fn trap_gate(handler: usize) -> GateDesc {
-    GateDesc::new(
-        handler as u64,
-        false,
-        None,
-        0,
-        KERNEL_CODE_SELECTOR.bits(),
-        true,
-    )
+    GateDesc::new(handler, false, None, Ring::Zero, KERNEL_CODE_SELECTOR, true)
 }
 
 /// Creates a new interrupt gate.
-fn int_gate(handler: usize) -> GateDesc {
-    GateDesc::new(
-        handler as u64,
-        true,
-        None,
-        0,
-        KERNEL_CODE_SELECTOR.bits(),
-        true,
-    )
+fn int_gate(handler: VirtAddr) -> GateDesc {
+    GateDesc::new(handler, true, None, Ring::Zero, KERNEL_CODE_SELECTOR, true)
 }
 
 /// Creates the gate for the double fault handler.
 fn double_fault_gate() -> GateDesc {
     GateDesc::new(
-        handlers::double_fault as usize as u64,
+        handlers::double_fault as VirtAddr,
         true,
         Some(DOUBLE_FAULT_IST_INDEX),
-        0,
-        KERNEL_CODE_SELECTOR.bits(),
+        Ring::Zero,
+        KERNEL_CODE_SELECTOR,
         true,
     )
 }

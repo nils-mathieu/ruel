@@ -40,12 +40,9 @@ pub extern "x86-interrupt" fn device_not_available(_stack_frame: InterruptStackF
 
 pub extern "x86-interrupt" fn double_fault(
     _stack_frame: InterruptStackFrame,
-    error_code: u64,
+    _error_code: u64,
 ) -> ! {
-    panic!(
-        "Received a DOUBLE_FAULT fault with error code {:#x}.",
-        error_code
-    );
+    panic!("Received a DOUBLE_FAULT fault.");
 }
 
 pub extern "x86-interrupt" fn invalid_tss(_stack_frame: InterruptStackFrame, error_code: u64) {

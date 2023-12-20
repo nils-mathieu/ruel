@@ -3,6 +3,7 @@
 
 #![no_std]
 #![forbid(unsafe_op_in_unsafe_fn)]
+#![feature(asm_const)]
 
 mod gdt;
 pub use self::gdt::*;

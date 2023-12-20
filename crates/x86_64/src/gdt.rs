@@ -73,7 +73,7 @@ impl SegmentFlags {
     #[inline]
     pub const fn from_base(base: u32) -> Self {
         let base = base as u64;
-        Self::from_bits_retain((base & 0xFFFFF) << 16 | (base & 0xFF000000) << 32)
+        Self::from_bits_retain((base & 0xFFFFFF) << 16 | (base & 0xFF000000) << 32)
     }
 }
 
@@ -136,30 +136,51 @@ impl SegmentSelector {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct UnalignedAddr([u32; 2]);
+
+impl UnalignedAddr {
+    /// A null [`UnalignedAddr`].
+    pub const NULL: Self = Self([0; 2]);
+
+    /// Creates a new [`UnalignedAddr`] from the provided address.
+    #[inline]
+    pub const fn new(addr: VirtAddr) -> Self {
+        Self([addr as u32, (addr >> 32) as u32])
+    }
+
+    /// Returns the address.
+    #[inline]
+    pub fn addr(self) -> VirtAddr {
+        let [low, high] = self.0;
+        ((high as VirtAddr) << 32) | low as VirtAddr
+    }
+}
+
 /// The content of a Task State Segment.
 #[derive(Debug, Clone, Copy)]
-#[repr(C, packed(4))]
+#[repr(C)]
 pub struct TaskStateSegment {
-    pub reserved0: u32,
+    reserved0: u32,
 
     /// The privilege stack table, responsible for storing the stack pointers
     /// that should be used when switching to the corresponding privilege level.
-    pub privilege_stack_table: [usize; 3],
+    privilege_stack_table: [UnalignedAddr; 3],
 
-    pub reserved1: u64,
+    reserved1: [u32; 2],
 
     /// The interrupt stack table.
     ///
     /// When defining a gate descriptor to register an interrupt service routine, it is
     /// possible to specify a stack index. This is the index that will be used to select
     /// the stack pointer to use serving the interrupt or trap.
-    pub interrupt_stack_table: [usize; 7],
+    interrupt_stack_table: [UnalignedAddr; 7],
 
-    pub reserved2: u64,
-    pub reserved3: u16,
+    reserved3: [u32; 2],
+    reserved4: u16,
 
     /// The base address of the I/O permission bitmap.
-    pub iomap_base: u16,
+    iomap_base: u16,
 }
 
 // Ensure that the TSS is 104 bytes long.
@@ -169,29 +190,30 @@ impl TaskStateSegment {
     /// An empty [`TaskStateSegment`].
     pub const EMPTY: Self = Self {
         reserved0: 0,
-        privilege_stack_table: [0; 3],
-        reserved1: 0,
-        interrupt_stack_table: [0; 7],
-        reserved2: 0,
-        reserved3: 0,
-        iomap_base: 0,
+        privilege_stack_table: [UnalignedAddr::NULL; 3],
+        reserved1: [0; 2],
+        interrupt_stack_table: [UnalignedAddr::NULL; 7],
+        reserved3: [0; 2],
+        reserved4: 0,
+        iomap_base: size_of::<TaskStateSegment>() as u16,
     };
 
     /// Sets the stack pointer for the provided IST index.
     #[inline]
     pub fn set_ist(&mut self, index: IstIndex, stack: VirtAddr) {
         unsafe {
-            let table_ptr = core::ptr::addr_of_mut!(self.privilege_stack_table) as *mut usize;
-            table_ptr.add(index as usize).write_unaligned(stack);
+            *self.interrupt_stack_table.get_unchecked_mut(index as usize) =
+                UnalignedAddr::new(stack);
         }
     }
 
     /// Returns the stack pointer for the provided IST index.
     #[inline]
-    pub fn ist(&self, index: IstIndex) -> usize {
+    pub fn ist(&self, index: IstIndex) -> VirtAddr {
         unsafe {
-            let table_ptr = core::ptr::addr_of!(self.privilege_stack_table) as *const usize;
-            table_ptr.add(index as usize).read_unaligned()
+            self.interrupt_stack_table
+                .get_unchecked(index as usize)
+                .addr()
         }
     }
 
@@ -205,8 +227,9 @@ impl TaskStateSegment {
         assert!(privilege != Ring::Three);
 
         unsafe {
-            let table_ptr = core::ptr::addr_of_mut!(self.privilege_stack_table) as *mut usize;
-            table_ptr.add(privilege as usize).write_unaligned(stack);
+            *self
+                .privilege_stack_table
+                .get_unchecked_mut(privilege as usize) = UnalignedAddr::new(stack);
         }
     }
 
@@ -216,12 +239,13 @@ impl TaskStateSegment {
     ///
     /// This function panics if `privilege` is `Ring::Three`.
     #[inline]
-    pub fn privilege_stack(&self, privilege: Ring) -> usize {
+    pub fn privilege_stack(&self, privilege: Ring) -> VirtAddr {
         assert!(privilege != Ring::Three);
 
         unsafe {
-            let table_ptr = core::ptr::addr_of!(self.privilege_stack_table) as *const usize;
-            table_ptr.add(privilege as usize).read_unaligned()
+            self.privilege_stack_table
+                .get_unchecked(privilege as usize)
+                .addr()
         }
     }
 }

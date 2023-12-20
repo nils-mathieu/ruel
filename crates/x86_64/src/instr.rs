@@ -195,3 +195,19 @@ pub unsafe fn wrmsr(msr: u32, val: u64) {
         );
     }
 }
+
+/// Invokes a software interrupt handler.
+///
+/// # Safety
+///
+/// Invoking an invalid interrupt handler can compromise memory safety.
+#[inline]
+pub unsafe fn int<const N: u8>() {
+    unsafe {
+        asm!(
+            "int {}",
+            const N as usize,
+            options(nomem, nostack, preserves_flags),
+        );
+    }
+}

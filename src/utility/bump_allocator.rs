@@ -119,10 +119,10 @@ impl BumpAllocator {
         &mut self,
         _hhdm: HhdmToken,
         size: usize,
-    ) -> Result<&'static mut [T], OutOfMemory> {
+    ) -> Result<&'static mut [MaybeUninit<T>], OutOfMemory> {
         let layout = Layout::array::<T>(size).map_err(|_| OutOfMemory)?;
         let phys_addr = self.allocate_phys(layout)?;
-        let virt_addr = (phys_addr as usize + HHDM_OFFSET) as *mut T;
+        let virt_addr = (phys_addr as usize + HHDM_OFFSET) as *mut MaybeUninit<T>;
         debug_assert!(virt_addr as usize & (layout.align() - 1) == 0);
         Ok(unsafe { core::slice::from_raw_parts_mut(virt_addr, size) })
     }

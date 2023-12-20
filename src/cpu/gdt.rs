@@ -65,6 +65,12 @@ pub fn init(
 ) -> Result<(), OutOfMemory> {
     let double_fault_stack =
         bootstrap_allocator.allocate_slice::<u8>(hhdm, DOUBLE_FAULT_STACK_SIZE)?;
+    let double_fault_stack = double_fault_stack.as_ptr() as VirtAddr + double_fault_stack.len();
+
+    log::trace!(
+        "Double fault stack allocated at address: {:#x}",
+        double_fault_stack,
+    );
 
     let tss = bootstrap_allocator
         .allocate::<TaskStateSegment>(hhdm)?
@@ -72,10 +78,7 @@ pub fn init(
 
     log::trace!("TSS allocated at address: {:p}", tss);
 
-    tss.iomap_base = size_of::<TaskStateSegment>() as u16;
-    tss.set_ist(DOUBLE_FAULT_IST_INDEX, unsafe {
-        double_fault_stack.as_ptr().add(double_fault_stack.len()) as VirtAddr
-    });
+    tss.set_ist(DOUBLE_FAULT_IST_INDEX, double_fault_stack);
     tss.set_privilege_stack(Ring::Zero, kernel_stack_top);
 
     let gdt = bootstrap_allocator.allocate::<Gdt>(hhdm)?;
@@ -102,13 +105,13 @@ pub fn init(
         };
 
         x86_64::lgdt(&gdtr);
-        x86_64::ltr(TSS_SELECTOR);
         x86_64::write_cs(KERNEL_CODE_SELECTOR);
         x86_64::write_ss(KERNEL_DATA_SELECTOR);
         x86_64::write_ds(KERNEL_DATA_SELECTOR);
         x86_64::write_es(KERNEL_DATA_SELECTOR);
         x86_64::write_fs(KERNEL_DATA_SELECTOR);
         x86_64::write_gs(KERNEL_DATA_SELECTOR);
+        x86_64::ltr(TSS_SELECTOR);
     }
 
     Ok(())

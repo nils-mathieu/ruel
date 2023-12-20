@@ -2,7 +2,7 @@ use core::ops::{Index, IndexMut};
 
 use bitflags::bitflags;
 
-use crate::IstIndex;
+use crate::{IstIndex, Ring, SegmentSelector, VirtAddr};
 
 /// An Interrupt Descriptor Table.
 #[repr(transparent)]
@@ -74,16 +74,15 @@ impl GateDesc {
     /// - `selector`: The code segment selector to use for the interrupt handler.
     ///
     /// - `present`: Whether the gate descriptor is actually present in the IDT.
-    #[inline]
     pub const fn new(
-        base: u64,
+        base: VirtAddr,
         without_interrupts: bool,
         ist: Option<IstIndex>,
-        dpl: u8,
-        selector: u16,
+        dpl: Ring,
+        selector: SegmentSelector,
         present: bool,
     ) -> Self {
-        assert!(dpl <= 3);
+        let base = base as u64;
 
         let mut low = 0;
         let mut high = 0;
@@ -104,7 +103,7 @@ impl GateDesc {
             None => 0,
         };
         low |= (dpl as u64) << 45;
-        low |= (selector as u64) << 16;
+        low |= (selector.bits() as u64) << 16;
 
         high |= base >> 32;
 
@@ -171,12 +170,12 @@ bitflags! {
         const WRITE = 1 << 1;
 
         /// Whether the page fault was caused by a write to a reserved bit.
-        const RESERVED_WRITE = 1 << 2;
+        const RESERVED_WRITE = 1 << 3;
 
         /// Whether the page fault was caused in userland.
         ///
         /// Note that this does not necessarily mean that the error was a privilege violation.
-        const USER = 1 << 3;
+        const USER = 1 << 2;
 
         /// Whether the page fault was caused by an instruction fetch on a non-executable page.
         const INSTRUCTION_FETCH = 1 << 4;
