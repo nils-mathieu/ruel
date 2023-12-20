@@ -1,8 +1,8 @@
 //! This module provides some simple utility functions and structures used across the kernel.
 
-mod display;
 use core::mem::MaybeUninit;
 
+mod display;
 pub use self::display::*;
 
 mod guards;
@@ -16,6 +16,12 @@ pub use self::bump_allocator::*;
 
 pub mod stable_array_vec;
 pub use self::stable_array_vec::StableFixedVec;
+
+mod uninit_array;
+pub use self::uninit_array::*;
+
+mod array_vec_deque;
+pub use self::array_vec_deque::*;
 
 /// Attempts to initialize the provided slice by repeatedly calling the provided function.
 pub fn try_init_slice_with<T, E>(

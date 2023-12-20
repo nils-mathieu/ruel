@@ -1,5 +1,6 @@
 #![no_std]
 
+use bitflags::bitflags;
 use loose_enum::loose_enum;
 
 mod sysno;
@@ -64,9 +65,6 @@ pub type ProcessId = usize;
 pub union WakeUp {
     /// The tag of the [`WakeUp`], indicating which condition is being waited on.
     pub tag: WakeUpTag,
-    /// Indicates that the process is waiting for a byte of data to be available from the PS/2
-    /// keyboard.
-    pub ps2_keyboard: WakeUpPS2,
 }
 
 impl WakeUp {
@@ -87,72 +85,44 @@ loose_enum! {
     }
 }
 
-/// A variant of [`WakeUp`]
-#[derive(Clone, Copy)]
+/// A buffer that can hold PS/2 scan-codes.
 #[repr(C)]
-pub struct WakeUpPS2 {
-    /// The tag of the [`WakeUp`] variant.
+#[derive(Clone, Copy, Debug)]
+pub struct PS2Buffer {
+    /// The number of bytes that have been written to the buffer.
     ///
-    /// For this variant, this is always [`WakeUpTag::PS2_KEYBOARD`].
-    pub tag: WakeUpTag,
-    /// A pointer to the byte of data that was read from the PS/2 port.
-    pub data: [u8; Self::MAX_DATA_LENGTH],
-    /// The number of bytes that were read from the PS/2 port.
-    pub count: u8,
+    /// # Remarks
+    ///
+    /// It's possible for `length` to be larger than `SIZE`. This can be used to detect whether
+    /// some bytes have been dropped since the last time the buffer was read.
+    pub length: u8,
+    /// The buffer.
+    pub buffer: [u8; Self::SIZE],
 }
 
-impl WakeUpPS2 {
-    /// The maximum nubmer of bytes that can be read from the PS/2 port during a single
-    /// quantum.
-    pub const MAX_DATA_LENGTH: usize = 5;
+impl PS2Buffer {
+    /// The maximum number of bytes that can be received by the program during a single quantum.
+    pub const SIZE: usize = 7;
+
+    /// An empty [`PS2Buffer`].
+    pub const EMPTY: Self = Self {
+        length: 0,
+        buffer: [0; Self::SIZE],
+    };
 }
 
-/// A slice of memory in the address space of a process.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Slice {
-    /// The address of the pointed memory.
-    pub address: *const u8,
-    /// The number of bytes in the slice.
-    pub length: usize,
-}
-
-impl Slice {
-    /// Constructs a [`Slice`] using the provided address and length.
-    ///
-    /// # Safety
-    ///
-    /// This [`Slice`] instance must reference valid memory that must remain borrowed for the
-    /// lifetime `'a`.
-    #[inline]
-    pub unsafe fn as_slice<'a>(self) -> &'a [u8] {
-        core::slice::from_raw_parts(self.address, self.length)
-    }
-
-    /// Constructs a mutable [`Slice`] using the provided address and length.
-    ///
-    /// # Safety
-    ///
-    /// This [`Slice`] instance must reference valid memory that must remain exclusively borrowed
-    /// for the lifetime `'a`.
-    #[inline]
-    pub unsafe fn as_slice_mut<'a>(self) -> &'a mut [u8] {
-        core::slice::from_raw_parts_mut(self.address as *mut u8, self.length)
-    }
-}
-
-unsafe impl Send for Slice {}
-unsafe impl Sync for Slice {}
-
-impl<T: ?Sized + AsRef<[u8]>> From<&T> for Slice {
-    #[inline]
-    fn from(slice: &T) -> Self {
-        let s = slice.as_ref();
-
-        Self {
-            address: s.as_ptr(),
-            length: s.len(),
-        }
+bitflags! {
+    /// Some flags used to configure a running process instance.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[repr(transparent)]
+    pub struct ProcessConfig: usize {
+        /// Whether the process wants to block on potentially blocking system calls.
+        ///
+        /// When this flag is set, system calls that would block the process will return instantly
+        /// without blocking.
+        ///
+        /// Otherwise, those system calls will block the process until the condition is met.
+        const DONT_BLOCK = 1 << 0;
     }
 }
 

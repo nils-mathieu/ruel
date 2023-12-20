@@ -2,11 +2,15 @@
 
 use core::ptr::NonNull;
 
-use ruel_sys::WakeUp;
+use ruel_sys::{ProcessConfig, WakeUp};
 use x86_64::{PageTable, PageTableIndex, PhysAddr, VirtAddr};
 
 use crate::cpu::paging::{AddressSpace, AddressSpaceContext, HHDM_OFFSET, KERNEL_BIT};
 use crate::global::{GlobalToken, OutOfMemory};
+
+use self::io_states::IoStates;
+
+mod io_states;
 
 /// The last address that is part of userland.
 pub const USERLAND_STOP: VirtAddr = 0x0000_7FFF_FFFF_FFFF;
@@ -36,50 +40,64 @@ unsafe impl<T: ?Sized + Sync> Sync for ProcessPtr<T> {}
 
 impl<T: ?Sized> ProcessPtr<T> {
     /// Creates a new [`ProcessPtr<T>`] instance.
-    #[inline]
-    pub const fn new(ptr: NonNull<T>) -> Self {
-        Self(ptr)
-    }
-
-    // /// Returns a reference to the inner value.
-    // ///
-    // /// # Safety
-    // ///
-    // /// The process that owns this pointer must be still around.
-    // #[inline]
-    // pub unsafe fn as_ref(&self) -> &T {
-    //     unsafe { self.0.as_ref() }
-    // }
-
-    /// Returns a mutable reference to the inner value.
     ///
     /// # Safety
     ///
-    /// The process that owns this pointer must be still around, and the memory it references
-    /// must not be shared with another eventually running process.
+    /// The created [`ProcessPtr<T>`] must be destroyed before the process is.
     #[inline]
-    pub unsafe fn as_mut(&mut self) -> &mut T {
-        unsafe { self.0.as_mut() }
+    pub const unsafe fn new(ptr: NonNull<T>) -> Self {
+        Self(ptr)
+    }
+
+    /// Reads the value from the pointer.
+    ///
+    /// # Remarks
+    ///
+    /// This function can race with the process if it has some other threads running
+    /// concurrently. When that happens, it's undefined behavior. There's no good way to
+    /// solve this, but since the pointer has no provenance, the compiler won't be able to
+    /// optimize it in a way that breaks the program.
+    ///
+    /// What we *do* need to care about, however, is to check the value just before we actually
+    /// read it.
+    #[inline]
+    pub fn as_ref(&self) -> &T {
+        unsafe { self.0.as_ref() }
     }
 }
 
 /// When a process is currently waiting for some condition to be met, this type stores which
 /// conditions are being waited on.
-pub struct SleepingState {
-    /// The conditions that the process is waiting on.
-    pub wake_ups: ProcessPtr<[WakeUp]>,
+pub enum SleepingState {
+    /// Pointer to a userspace buffer.
+    InProcess(ProcessPtr<[WakeUp]>),
+    /// Inline-waiting on a condition to avoid allocating memory.
+    InKernel(WakeUp),
+}
+
+impl SleepingState {
+    /// Returns a reference to the inner value.
+    #[inline]
+    pub fn as_ref(&self) -> &[WakeUp] {
+        match self {
+            Self::InProcess(ptr) => ptr.as_ref(),
+            Self::InKernel(wake_up) => core::slice::from_ref(wake_up),
+        }
+    }
 }
 
 /// A process that's running on the system.
 pub struct Process {
     /// The address space of the process.
     pub address_space: AddressSpace<ASContext>,
-
     /// The current state of the process.
     pub registers: Registers,
-
+    /// The local I/O state reported to the process.
+    pub io_states: IoStates,
     /// The state of the process.
     pub sleeping: Option<SleepingState>,
+    /// The configuration flags of the process.
+    pub config: ProcessConfig,
 }
 
 impl Process {
@@ -104,7 +122,33 @@ impl Process {
             address_space,
             registers: Registers::default(),
             sleeping: None,
+            io_states: IoStates::empty(),
+            config: ProcessConfig::empty(),
         })
+    }
+
+    /// Ticks the process once.
+    pub fn tick(&mut self) {
+        let mut woken_up = false;
+
+        if let Some(sleeping) = &mut self.sleeping {
+            for wake_up in sleeping.as_ref() {
+                match wake_up.tag() {
+                    ruel_sys::WakeUpTag::PS2_KEYBOARD => {
+                        if self.io_states.ps2_keyboard.total_len() > 0 {
+                            woken_up = true;
+                        }
+                    }
+                    _ => {
+                        // TODO: properly propagate the error to the process.
+                    }
+                }
+            }
+        }
+
+        if woken_up {
+            self.sleeping = None;
+        }
     }
 }
 

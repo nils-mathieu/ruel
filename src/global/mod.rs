@@ -6,9 +6,6 @@ pub use self::allocator::*;
 mod processes;
 pub use self::processes::*;
 
-mod input;
-pub use self::input::*;
-
 use core::ops::Deref;
 
 use x86_64::{PhysAddr, VirtAddr};
@@ -24,11 +21,6 @@ pub struct Global {
     pub kernel_physical_base: PhysAddr,
     /// The physical address of the L4 page table in memory.
     pub address_space: PhysAddr,
-
-    /// The list of inputs that the kernel has received.
-    ///
-    /// This list is cleared and sent to the processes at the end of every quantum.
-    pub inputs: Mutex<Inputs>,
 
     /// The list of running processes.
     pub processes: Processes,

@@ -1,6 +1,6 @@
 use core::arch::asm;
 
-use crate::{ProcessId, Slice, SysResult, Sysno, Verbosity, WakeUp};
+use crate::{PS2Buffer, ProcessConfig, ProcessId, SysResult, Sysno, Verbosity, WakeUp};
 
 /// Performs a system call with no arguments.
 #[inline]
@@ -195,11 +195,11 @@ pub unsafe fn syscall6(
     ret
 }
 
-/// Terminates the specified process.
+/// Despawns (terminate) the specified process.
 ///
 /// # Parameters
 ///
-/// - `process_id`: The ID of the process to terminate. The special value `ProcessId::MAX` is used
+/// - `process_id`: The ID of the process to despawn. The special value `ProcessId::MAX` is used
 ///   to refer to the current process.
 ///
 /// # Errors
@@ -214,21 +214,74 @@ pub unsafe fn syscall6(
 /// Nothing; but this function diverges if `process_id` is `ProcessId::MAX` or the ID of the
 /// current process.
 #[inline]
-pub fn terminate(process_id: ProcessId) -> SysResult {
-    unsafe { SysResult::from_raw(syscall1(Sysno::Terminate as usize, process_id)) }
+pub fn despawn_process(process_id: ProcessId) -> SysResult {
+    unsafe { SysResult::from_raw(syscall1(Sysno::DespawnProcess as usize, process_id)) }
 }
 
-/// Terminates the current process.
+/// Despawns (terminate) the current process.
 ///
 /// # Returns
 ///
 /// This function never returns.
 #[inline]
-pub fn terminate_self() -> ! {
+pub fn despawn_self() -> ! {
     unsafe {
-        let _ = terminate(ProcessId::MAX);
-        debug_assert!(false, "terminate_self() returned");
+        let _ = despawn_process(ProcessId::MAX);
+        debug_assert!(false, "despawn_self() returned");
         core::hint::unreachable_unchecked();
+    }
+}
+
+/// Sets the configuration of the specified process.
+///
+/// # Parameters
+///
+/// - `process_id`: The ID of the process to configure. The special value `ProcessId::MAX` is used
+///   to refer to the current process.
+///
+/// # Returns
+///
+/// - `PROCESS_NOT_FOUND` if the `process_id` does not refer to an existing process.
+///
+/// - `INVALID_VALUE` if any of the flags are invalid.
+///
+/// # Returns
+///
+/// Nothing.
+#[inline]
+pub fn set_process_config(process_id: ProcessId, flags: ProcessConfig) -> SysResult {
+    unsafe {
+        SysResult::from_raw(syscall2(
+            Sysno::SetProcessConfig as usize,
+            process_id,
+            flags.bits(),
+        ))
+    }
+}
+
+/// Gets the configuration of the specified process.
+///
+/// # Parameters
+///
+/// - `process_id`: The ID of the process to configure. The special value `ProcessId::MAX` is used
+///   to refer to the current process.
+///
+/// # Errors
+///
+/// - `PROCESS_NOT_FOUND` if the `process_id` does not refer to an existing process.
+///
+/// # Returns
+///
+/// - `ret`: A pointer to a [`ProcessConfig`] instance that will be filled with the configuration
+///   of the process.
+#[inline]
+pub fn get_process_config(process_id: ProcessId, ret: *mut ProcessConfig) -> SysResult {
+    unsafe {
+        SysResult::from_raw(syscall2(
+            Sysno::GetProcessConfig as usize,
+            process_id,
+            ret as usize,
+        ))
     }
 }
 
@@ -242,7 +295,12 @@ pub fn terminate_self() -> ! {
 ///
 /// - `wake_up_len`: The number of items in the `wake_ups` array.
 ///
-/// # Returns
+/// # Remarks
+///
+/// This function is unaffected by the [`DONT_BLOCK`] process configuration flag. Whathever the
+/// value, the process will always be put to sleep.
+///
+/// # Errors
 ///
 /// - `INVALID_VALUE` if any of the wake-up events are invalid.
 ///
@@ -252,6 +310,8 @@ pub fn terminate_self() -> ! {
 ///
 /// When mutiple wake-up events occur at the same time, the index of the first one in the list
 /// is returned.
+///
+/// [`DONT_BLOCK`]: ProcessConfig::DONT_BLOCK
 #[inline]
 pub fn sleep(wake_ups: *mut WakeUp, wake_up_len: usize) -> SysResult {
     unsafe {
@@ -261,6 +321,23 @@ pub fn sleep(wake_ups: *mut WakeUp, wake_up_len: usize) -> SysResult {
             wake_up_len,
         ))
     }
+}
+
+/// Reads the bytes received by the program on the first PS/2 port.
+///
+/// # Blocking Behavior
+///
+/// If the [`DONT_BLOCK`] process configuration flag is set, this system call will does not block
+/// and returns instantly with an empty buffer if no bytes are available. Otherwise, the function
+/// blocks until at least one byte of data is available.
+///
+/// # Returns
+///
+/// - `ret`: A pointer to a [`PS2Buffer`] instance that will be filled with the bytes received by
+///   the program.
+#[inline]
+pub fn read_ps2(ret: *mut PS2Buffer) -> SysResult {
+    unsafe { SysResult::from_raw(syscall1(Sysno::ReadPS2 as usize, ret as usize)) }
 }
 
 /// Sends a message using the kernel's logging system.
@@ -285,7 +362,7 @@ pub fn sleep(wake_ups: *mut WakeUp, wake_up_len: usize) -> SysResult {
 ///
 /// Nothing.
 #[inline]
-pub fn kernel_log(verbosity: Verbosity, data: *const Slice, data_len: usize) -> SysResult {
+pub fn kernel_log(verbosity: Verbosity, data: *const u8, data_len: usize) -> SysResult {
     unsafe {
         SysResult::from_raw(syscall3(
             Sysno::KernelLog as usize,

@@ -1,8 +1,8 @@
 use core::cell::Cell;
 
-use ruel_sys::{ProcessId, WakeUpTag};
+use ruel_sys::ProcessId;
 
-use super::{Inputs, OutOfMemory};
+use super::OutOfMemory;
 use crate::process::Process;
 use crate::sync::{CpuLocal, Mutex, MutexGuard};
 use crate::utility::{BumpAllocator, StableFixedVec};
@@ -70,7 +70,14 @@ impl Processes {
     /// Returns the process ID of the process currently running on the CPU.
     #[inline]
     pub fn current_id(&self) -> ProcessId {
-        self.current_process.get()
+        let id = self.current_process.get();
+
+        assert!(
+            id != ProcessId::MAX,
+            "Attempted to access the current process while no process is running on the CPU"
+        );
+
+        id
     }
 
     /// Returns the current process.
@@ -79,55 +86,32 @@ impl Processes {
     ///
     /// This function panics if no process is running on the current CPU.
     pub fn current(&self) -> MutexGuard<Process> {
-        unsafe {
-            let index = self.current_id();
-
-            assert!(
-                index != ProcessId::MAX,
-                "Attempted to access the current process while no process is running on the CPU"
-            );
-
-            MutexGuard::map(self.list.lock(), |list| {
-                debug_assert!(list.is_present(index));
-                list.get_unchecked_mut(index)
-            })
-        }
+        let id = self.current_id();
+        MutexGuard::map(self.list.lock(), move |list| {
+            debug_assert!(list.is_present(id));
+            unsafe { list.get_unchecked_mut(id) }
+        })
     }
 
-    /// Ticks the whole list of processes, checking if some can wake up.
-    pub fn tick(&self, inputs: &mut Inputs) {
-        let mut list = self.list.lock();
-
-        for process in list.iter_mut() {
-            let mut woken_up = false;
-
-            if let Some(sleeping) = &mut process.sleeping {
-                for wake_up in unsafe { sleeping.wake_ups.as_mut() } {
-                    match wake_up.tag() {
-                        WakeUpTag::PS2_KEYBOARD => {
-                            let wake_up = unsafe { &mut wake_up.ps2_keyboard };
-                            if !inputs.ps2_keyboard.is_empty() {
-                                wake_up.count = inputs.ps2_keyboard.len() as u8;
-                                unsafe {
-                                    core::ptr::copy_nonoverlapping(
-                                        inputs.ps2_keyboard.as_ptr(),
-                                        wake_up.data.as_mut_ptr(),
-                                        wake_up.count as usize,
-                                    );
-                                }
-                                woken_up = true;
-                            }
-                        }
-                        tag => unreachable!("invalid WakeUpTag detected: {tag:?}"),
-                    }
-                }
+    /// Attempts to get the process with the given ID.
+    ///
+    /// The special value `ProcessId::MAX` is used to refer to the current process.
+    pub fn get(&self, id: ProcessId) -> Option<MutexGuard<Process>> {
+        MutexGuard::try_map(self.list.lock(), |list| {
+            if id == ProcessId::MAX {
+                let id = self.current_id();
+                debug_assert!(list.is_present(id));
+                Ok(unsafe { list.get_unchecked_mut(id) })
+            } else {
+                list.get_mut(id).ok_or(())
             }
+        })
+        .ok()
+    }
 
-            if woken_up {
-                process.sleeping = None;
-            }
-        }
-
-        inputs.clear();
+    /// Calls the provided closure with a reference to each process.
+    #[inline]
+    pub fn for_each_mut(&self, f: impl FnMut(&mut Process)) {
+        self.list.lock().iter_mut().for_each(f)
     }
 }

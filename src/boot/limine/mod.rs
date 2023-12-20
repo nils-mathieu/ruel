@@ -19,7 +19,7 @@ use crate::boot::{handle_mapping_error, oom};
 use crate::cpu::paging::{
     AddressSpace, AddressSpaceContext, HhdmToken, FOUR_KIB, HHDM_OFFSET, KERNEL_BIT, NOT_OWNED_BIT,
 };
-use crate::global::{Global, Inputs, MemoryAllocator, OutOfMemory, Processes};
+use crate::global::{Global, MemoryAllocator, OutOfMemory, Processes};
 use crate::hcf::die;
 use crate::log;
 use crate::process::Registers;
@@ -374,7 +374,6 @@ extern "C" fn with_new_stack(package: *mut ToNewStack) -> ! {
             allocator: Mutex::new(allocator),
             kernel_physical_base,
             address_space,
-            inputs: Mutex::new(Inputs::empty()),
             processes,
         },
         kernel_stack_top,

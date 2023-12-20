@@ -1,12 +1,11 @@
 use core::mem::MaybeUninit;
 use core::ops::{Deref, DerefMut};
 
-/// A vector of fixed size. It cannot grow.
-pub type ArrayVec<T, const N: usize> = FixedVec<[MaybeUninit<T>; N]>;
+use super::UninitArray;
 
 /// A vector of fixed size. It cannot grow.
 pub struct FixedVec<A: ?Sized + UninitArray> {
-    len: usize,
+    len: u32,
     array: A,
 }
 
@@ -49,7 +48,7 @@ impl<A: ?Sized + UninitArray> FixedVec<A> {
     /// This is the number of elements that have been initialized in the vector.
     #[inline]
     pub fn len(&self) -> usize {
-        self.len
+        self.len as usize
     }
 
     /// Returns the capacity of the vector.
@@ -103,7 +102,7 @@ impl<A: ?Sized + UninitArray> FixedVec<A> {
         }
 
         unsafe {
-            let ptr = self.array.as_mut_ptr().add(self.len);
+            let ptr = self.array.as_mut_ptr().add(self.len as usize);
             ptr.write(item);
             self.len += 1;
         }
@@ -120,7 +119,7 @@ impl<A: ?Sized + UninitArray> FixedVec<A> {
 
         unsafe {
             self.len -= 1;
-            Some(self.array.as_mut_ptr().add(self.len).read())
+            Some(self.array.as_mut_ptr().add(self.len as usize).read())
         }
     }
 
@@ -136,14 +135,14 @@ impl<A: ?Sized + UninitArray> Deref for FixedVec<A> {
 
     #[inline]
     fn deref(&self) -> &Self::Target {
-        unsafe { core::slice::from_raw_parts(self.array.as_ptr(), self.len) }
+        unsafe { core::slice::from_raw_parts(self.array.as_ptr(), self.len as usize) }
     }
 }
 
 impl<A: ?Sized + UninitArray> DerefMut for FixedVec<A> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { core::slice::from_raw_parts_mut(self.array.as_mut_ptr(), self.len) }
+        unsafe { core::slice::from_raw_parts_mut(self.array.as_mut_ptr(), self.len as usize) }
     }
 }
 
@@ -171,7 +170,7 @@ impl<A: UninitArray> IntoIterator for FixedVec<A> {
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
         IntoIter {
-            len: self.len,
+            len: self.len as usize,
             index: 0,
             array: self.into_inner(),
         }
@@ -259,90 +258,5 @@ impl<A: ?Sized + UninitArray> Drop for IntoIter<A> {
             let slice = core::slice::from_raw_parts_mut(p, len);
             core::ptr::drop_in_place(slice);
         }
-    }
-}
-
-/// A trait for fixed-size arrays.
-///
-/// Note that, in the context of this trait, "fixed size" does not mean that the size must be
-/// known at compile-time. Simply that the size cannot change after creation.
-///
-/// # Safety
-///
-/// The functions returned by this trait must coherent with one another.
-///
-/// If a function has a shared reference to the array, then accessing up to `len` elements of the
-/// array must be safe.
-///
-/// If a function has a mutable reference to the array, then accessing up to `len` elements of the
-/// array must be safe, and modifying up to `len` elements of the array must be safe.
-pub unsafe trait UninitArray {
-    /// The type of item stored in the array.
-    type Item;
-
-    /// Returns the length of the array.
-    fn len(&self) -> usize;
-
-    /// Returns a shared reference to the item at the given index.
-    fn as_ptr(&self) -> *const Self::Item;
-
-    /// Returns a mutable reference to the item at the given index.
-    fn as_mut_ptr(&mut self) -> *mut Self::Item;
-}
-
-unsafe impl<const N: usize, T> UninitArray for [MaybeUninit<T>; N] {
-    type Item = T;
-
-    #[inline]
-    fn len(&self) -> usize {
-        N
-    }
-
-    #[inline]
-    fn as_ptr(&self) -> *const Self::Item {
-        <[_]>::as_ptr(self) as *mut Self::Item
-    }
-
-    #[inline]
-    fn as_mut_ptr(&mut self) -> *mut Self::Item {
-        <[_]>::as_mut_ptr(self) as *mut Self::Item
-    }
-}
-
-unsafe impl<T> UninitArray for [MaybeUninit<T>] {
-    type Item = T;
-
-    #[inline]
-    fn len(&self) -> usize {
-        <[_]>::len(self)
-    }
-
-    #[inline]
-    fn as_ptr(&self) -> *const Self::Item {
-        <[_]>::as_ptr(self) as *mut Self::Item
-    }
-
-    #[inline]
-    fn as_mut_ptr(&mut self) -> *mut Self::Item {
-        <[_]>::as_mut_ptr(self) as *mut Self::Item
-    }
-}
-
-unsafe impl<'a, A: ?Sized + UninitArray> UninitArray for &'a mut A {
-    type Item = A::Item;
-
-    #[inline]
-    fn len(&self) -> usize {
-        (**self).len()
-    }
-
-    #[inline]
-    fn as_ptr(&self) -> *const Self::Item {
-        (**self).as_ptr()
-    }
-
-    #[inline]
-    fn as_mut_ptr(&mut self) -> *mut Self::Item {
-        (**self).as_mut_ptr()
     }
 }

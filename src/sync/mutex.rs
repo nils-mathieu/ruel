@@ -87,6 +87,17 @@ impl<'a, T> MutexGuard<'a, T> {
             value: f(self.leak()),
         }
     }
+
+    /// Maps the inner value to a new value, returning an error if the closure returns an error.
+    pub fn try_map<U, E>(
+        self,
+        f: impl FnOnce(&mut T) -> Result<&mut U, E>,
+    ) -> Result<MutexGuard<'a, U>, E> {
+        Ok(MutexGuard {
+            locked: self.locked,
+            value: f(self.leak())?,
+        })
+    }
 }
 
 impl<T: ?Sized> Deref for MutexGuard<'_, T> {

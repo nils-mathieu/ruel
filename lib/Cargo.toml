@@ -14,3 +14,4 @@ klog = ["syscalls"]
 
 [dependencies]
 loose-enum = { path = "../crates/loose-enum" }
+bitflags = "2"

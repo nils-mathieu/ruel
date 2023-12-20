@@ -1,9 +1,10 @@
 //! Defines the system call handlers.
 
 use core::fmt::Write;
+use core::mem::MaybeUninit;
 use core::ptr::NonNull;
 
-use ruel_sys::{ProcessId, Slice, SysResult, Verbosity, WakeUp};
+use ruel_sys::{PS2Buffer, ProcessConfig, SysResult, Verbosity, WakeUp, WakeUpTag};
 use x86_64::hlt;
 
 use crate::cpu::paging::HHDM_OFFSET;
@@ -12,8 +13,18 @@ use crate::log;
 use crate::process::{ProcessPtr, SleepingState};
 use crate::utility::RestoreInterrupts;
 
-/// See [`ruel_sys::terminate`].
-pub unsafe extern "C" fn terminate(
+/// Returns the provided value if the result is [`None`].
+macro_rules! try_or {
+    ($result:expr, $or:expr) => {
+        match $result {
+            Some(value) => value,
+            None => return $or,
+        }
+    };
+}
+
+/// See [`ruel_sys::despawn_process`].
+pub unsafe extern "C" fn despawn_process(
     process_id: usize,
     _: usize,
     _: usize,
@@ -23,65 +34,45 @@ pub unsafe extern "C" fn terminate(
 ) -> SysResult {
     let glob = GlobalToken::get();
 
-    if process_id == ProcessId::MAX || process_id == glob.processes.current_id() {
-        todo!("terminate_self()");
-    }
+    let _process = try_or!(glob.processes.get(process_id), SysResult::PROCESS_NOT_FOUND);
 
-    SysResult::PROCESS_NOT_FOUND
+    todo!("despawn_process({})", process_id);
 }
 
-/// See [`ruel_sys::kernel_log`].
-pub unsafe extern "C" fn kernel_log(
-    verbosity: usize,
-    data: usize,
-    len: usize,
+/// See [`ruel_sys::get_process_config`].
+pub unsafe extern "C" fn set_process_config(
+    process_id: usize,
+    config: usize,
+    _: usize,
     _: usize,
     _: usize,
     _: usize,
 ) -> SysResult {
-    let verbosity = match Verbosity::from_raw(verbosity) {
-        Some(verbosity) => verbosity,
-        None => return SysResult::INVALID_VALUE,
-    };
+    let glob = GlobalToken::get();
 
-    // FIXME: Make sure that the memory provided is valid.
-    let data = unsafe { core::slice::from_raw_parts(data as *const Slice, len) };
+    let config = try_or!(ProcessConfig::from_bits(config), SysResult::INVALID_VALUE);
+    let mut process = try_or!(glob.processes.get(process_id), SysResult::PROCESS_NOT_FOUND);
 
-    struct ProcessMessage<'a> {
-        data: &'a [Slice],
-    }
+    process.config = config;
 
-    impl<'a> core::fmt::Display for ProcessMessage<'a> {
-        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-            for slice in self.data {
-                let mut slice = unsafe { core::slice::from_raw_parts(slice.address, slice.length) };
+    SysResult::SUCCESS
+}
 
-                while !slice.is_empty() {
-                    match core::str::from_utf8(slice) {
-                        Ok(s) => {
-                            f.write_str(s)?;
-                            break;
-                        }
-                        Err(error) => unsafe {
-                            let valid = slice.get_unchecked(..error.valid_up_to());
-                            f.write_str(core::str::from_utf8_unchecked(valid))?;
-                            f.write_char(char::REPLACEMENT_CHARACTER)?;
+/// See [`ruel_sys::get_process_config`].
+pub unsafe extern "C" fn get_process_config(
+    process_id: usize,
+    ret: usize,
+    _: usize,
+    _: usize,
+    _: usize,
+    _: usize,
+) -> SysResult {
+    let glob = GlobalToken::get();
 
-                            if let Some(invalid_count) = error.error_len() {
-                                slice = slice.get_unchecked(invalid_count..);
-                            } else {
-                                break;
-                            }
-                        },
-                    }
-                }
-            }
+    let ret = unsafe { &mut *(ret as *mut MaybeUninit<ProcessConfig>) };
+    let process = try_or!(glob.processes.get(process_id), SysResult::PROCESS_NOT_FOUND);
 
-            Ok(())
-        }
-    }
-
-    log::log!(verbosity, "{}", ProcessMessage { data });
+    ret.write(process.config);
 
     SysResult::SUCCESS
 }
@@ -96,20 +87,6 @@ pub unsafe extern "C" fn sleep(
     _: usize,
 ) -> SysResult {
     // FIXME: Properly ensure that the memory referenced is valid.
-
-    {
-        let wake_ups = unsafe {
-            core::slice::from_raw_parts(wake_ups as *const ruel_sys::WakeUp, wake_up_len)
-        };
-
-        // Ensure that the wake-up events are properly constructed.
-
-        for wake_up in wake_ups {
-            if !wake_up.tag().is_known() {
-                return SysResult::INVALID_VALUE;
-            }
-        }
-    }
 
     // Put the current process to sleep.
 
@@ -127,23 +104,114 @@ pub unsafe extern "C" fn sleep(
         let wake_up =
             current_process.address_space.translate(wake_ups).unwrap() as usize + HHDM_OFFSET;
         let wake_up = unsafe { NonNull::new_unchecked(wake_up as *mut WakeUp) };
-        let wake_ups = ProcessPtr::new(NonNull::slice_from_raw_parts(wake_up, wake_up_len));
+        let wake_ups =
+            unsafe { ProcessPtr::new(NonNull::slice_from_raw_parts(wake_up, wake_up_len)) };
 
         // Update the state of the process.
         assert!(current_process.sleeping.is_none());
-        current_process.sleeping = Some(SleepingState { wake_ups });
+        current_process.sleeping = Some(SleepingState::InProcess(wake_ups));
     }
 
     // TODO: Switch to another process.
     // Currently, because we don't have multitasking, just halt until the process is woken up.
 
-    loop {
-        if glob.processes.current().sleeping.is_none() {
-            break;
-        }
-
+    while glob.processes.current().sleeping.is_some() {
         hlt();
     }
+
+    SysResult::SUCCESS
+}
+
+/// See [`ruel_sys::read_ps2`].
+pub unsafe extern "C" fn read_ps2(
+    ret: usize,
+    _: usize,
+    _: usize,
+    _: usize,
+    _: usize,
+    _: usize,
+) -> SysResult {
+    let glob = GlobalToken::get();
+
+    let ret = unsafe { &mut *(ret as *mut MaybeUninit<PS2Buffer>) };
+    let ret = ret.write(PS2Buffer::EMPTY);
+
+    let mut _without_interrupts = RestoreInterrupts::without_interrupts();
+    let mut process = glob.processes.current();
+
+    if !process.config.intersects(ProcessConfig::DONT_BLOCK) {
+        process.sleeping = Some(SleepingState::InKernel(WakeUp {
+            tag: WakeUpTag::PS2_KEYBOARD,
+        }));
+
+        drop(process);
+        drop(_without_interrupts);
+
+        while glob.processes.current().sleeping.is_some() {
+            hlt();
+        }
+
+        _without_interrupts = RestoreInterrupts::without_interrupts();
+        process = glob.processes.current();
+    }
+
+    ret.length = process.io_states.ps2_keyboard.total_len();
+    process
+        .io_states
+        .ps2_keyboard
+        .copy_to_slice(&mut ret.buffer);
+    process.io_states.ps2_keyboard.clear();
+
+    SysResult::SUCCESS
+}
+
+/// See [`ruel_sys::kernel_log`].
+pub unsafe extern "C" fn kernel_log(
+    verbosity: usize,
+    data: usize,
+    len: usize,
+    _: usize,
+    _: usize,
+    _: usize,
+) -> SysResult {
+    let verbosity = try_or!(Verbosity::from_raw(verbosity), SysResult::INVALID_VALUE);
+
+    // FIXME: Make sure that the memory provided is valid.
+    let data = unsafe { core::slice::from_raw_parts(data as *const u8, len) };
+
+    struct ProcessMessage<'a> {
+        data: &'a [u8],
+    }
+
+    impl<'a> core::fmt::Display for ProcessMessage<'a> {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            let mut slice = self.data;
+
+            while !slice.is_empty() {
+                match core::str::from_utf8(slice) {
+                    Ok(s) => {
+                        f.write_str(s)?;
+                        break;
+                    }
+                    Err(error) => unsafe {
+                        let valid = slice.get_unchecked(..error.valid_up_to());
+                        f.write_str(core::str::from_utf8_unchecked(valid))?;
+                        f.write_char(char::REPLACEMENT_CHARACTER)?;
+
+                        if let Some(invalid_count) = error.error_len() {
+                            slice = slice.get_unchecked(invalid_count..);
+                        } else {
+                            break;
+                        }
+                    },
+                }
+            }
+
+            Ok(())
+        }
+    }
+
+    log::log!(verbosity, "{}", ProcessMessage { data });
 
     SysResult::SUCCESS
 }

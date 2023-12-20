@@ -1,6 +1,7 @@
 use x86_64::{cli, sti, RFlags};
 
 /// A guard that restores interrupts when dropped.
+#[clippy::has_significant_drop]
 pub struct RestoreInterrupts;
 
 impl RestoreInterrupts {

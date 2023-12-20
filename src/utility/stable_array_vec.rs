@@ -55,6 +55,13 @@ impl<T> StableFixedVec<T> {
         unsafe { self.array.get_unchecked_mut(index).read_unchecked_mut() }
     }
 
+    /// Returns the value at the given index, checking whether that entry is currently occupied or
+    /// not.
+    #[inline]
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
+        self.array.get_mut(index).and_then(Slot::read_mut)
+    }
+
     /// Returns an iterator over the values of the vector.
     #[inline]
     pub fn iter(&self) -> Iter<T> {

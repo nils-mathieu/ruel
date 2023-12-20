@@ -5,7 +5,7 @@ use x86_64::{read_cr2, InterruptStackFrame, PageFaultError};
 use crate::cpu::idt::pic::Irq;
 use crate::global::GlobalToken;
 use crate::io::ps2::{self, PS2Status};
-use crate::log;
+use crate::process::Process;
 
 pub extern "x86-interrupt" fn division_error(_stack_frame: InterruptStackFrame) {
     panic!("Received a DIVISION_ERROR fault.");
@@ -162,8 +162,7 @@ pub extern "x86-interrupt" fn security_exception(
 
 pub extern "x86-interrupt" fn pic_timer(_frame: InterruptStackFrame) {
     let glob = GlobalToken::get();
-    glob.processes.tick(&mut glob.inputs.lock());
-
+    glob.processes.for_each_mut(Process::tick);
     super::pic::end_of_interrupt(Irq::Timer);
 }
 
@@ -173,15 +172,8 @@ pub extern "x86-interrupt" fn pic_ps2_keyboard(_frame: InterruptStackFrame) {
     debug_assert!(ps2::status().intersects(PS2Status::OUTPUT));
     let scancode = ps2::read_data();
 
-    {
-        let mut inputs = glob.inputs.lock();
-        match inputs.ps2_keyboard.try_push(scancode) {
-            Ok(()) => {}
-            Err(_) => {
-                log::warn!("PS/2 keyboard buffer overflowed, dropping scancode 0x{scancode:02x}");
-            }
-        }
-    }
+    glob.processes
+        .for_each_mut(move |proc| proc.io_states.ps2_keyboard.push(scancode));
 
     super::pic::end_of_interrupt(Irq::PS2Keyboard);
 }
