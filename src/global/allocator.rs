@@ -26,7 +26,7 @@ impl MemoryAllocator {
         bootstrap_allocator: &mut BumpAllocator,
         capacity: usize,
     ) -> Result<Self, OutOfMemory> {
-        let free_list_slice = bootstrap_allocator.allocate_slice(hhdm, capacity)?;
+        let free_list_slice = bootstrap_allocator.allocate_slice(capacity)?;
 
         Ok(Self {
             _hhdm: hhdm,

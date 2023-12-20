@@ -4,7 +4,7 @@ use core::mem::size_of;
 
 use x86_64::{IstIndex, Ring, SegmentFlags, SegmentSelector, TablePtr, TaskStateSegment, VirtAddr};
 
-use super::paging::{HhdmToken, FOUR_KIB};
+use super::paging::FOUR_KIB;
 use crate::global::OutOfMemory;
 use crate::log;
 use crate::utility::BumpAllocator;
@@ -61,10 +61,8 @@ type Gdt = [u64; 7];
 pub fn init(
     bootstrap_allocator: &mut BumpAllocator,
     kernel_stack_top: VirtAddr,
-    hhdm: HhdmToken,
 ) -> Result<(), OutOfMemory> {
-    let double_fault_stack =
-        bootstrap_allocator.allocate_slice::<u8>(hhdm, DOUBLE_FAULT_STACK_SIZE)?;
+    let double_fault_stack = bootstrap_allocator.allocate_slice::<u8>(DOUBLE_FAULT_STACK_SIZE)?;
     let double_fault_stack = double_fault_stack.as_ptr() as VirtAddr + double_fault_stack.len();
 
     log::trace!(
@@ -73,7 +71,7 @@ pub fn init(
     );
 
     let tss = bootstrap_allocator
-        .allocate::<TaskStateSegment>(hhdm)?
+        .allocate::<TaskStateSegment>()?
         .write(TaskStateSegment::EMPTY);
 
     log::trace!("TSS allocated at address: {:p}", tss);
@@ -81,7 +79,7 @@ pub fn init(
     tss.set_ist(DOUBLE_FAULT_IST_INDEX, double_fault_stack);
     tss.set_privilege_stack(Ring::Zero, kernel_stack_top);
 
-    let gdt = bootstrap_allocator.allocate::<Gdt>(hhdm)?;
+    let gdt = bootstrap_allocator.allocate::<Gdt>()?;
 
     log::trace!("GDT allocated at address: {:p}", gdt);
 

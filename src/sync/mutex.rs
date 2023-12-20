@@ -36,7 +36,7 @@ impl<T: ?Sized> Mutex<T> {
         {
             // Fast path: no spinning required.
             MutexGuard {
-                lock: self,
+                locked: &self.locked,
                 value: unsafe { &mut *self.value.get() },
             }
         } else {
@@ -57,7 +57,7 @@ impl<T: ?Sized> Mutex<T> {
         }
 
         MutexGuard {
-            lock: self,
+            locked: &self.locked,
             value: unsafe { &mut *self.value.get() },
         }
     }
@@ -66,9 +66,27 @@ impl<T: ?Sized> Mutex<T> {
 /// A guard that releases a lock when dropped.
 pub struct MutexGuard<'a, T: ?Sized> {
     /// The lock that we are responsible for releasing.
-    lock: &'a Mutex<T>,
+    locked: &'a AtomicBool,
     /// The protected value.
     value: &'a mut T,
+}
+
+impl<'a, T> MutexGuard<'a, T> {
+    /// Leaks the protected value, leaving the mutex forever locked.
+    #[inline]
+    pub fn leak(self) -> &'a mut T {
+        let value = unsafe { core::ptr::read(&self.value) };
+        core::mem::forget(self);
+        value
+    }
+
+    /// Maps the inner value to a new value.
+    pub fn map<U>(self, f: impl FnOnce(&mut T) -> &mut U) -> MutexGuard<'a, U> {
+        MutexGuard {
+            locked: self.locked,
+            value: f(self.leak()),
+        }
+    }
 }
 
 impl<T: ?Sized> Deref for MutexGuard<'_, T> {
@@ -90,6 +108,6 @@ impl<T: ?Sized> DerefMut for MutexGuard<'_, T> {
 impl<'a, T: ?Sized> Drop for MutexGuard<'a, T> {
     #[inline]
     fn drop(&mut self) {
-        self.lock.locked.store(false, Release);
+        self.locked.store(false, Release);
     }
 }

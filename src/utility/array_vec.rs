@@ -26,6 +26,15 @@ impl<A: UninitArray> FixedVec<A> {
     }
 }
 
+impl<'a, T> FixedVec<&'a mut [MaybeUninit<T>]> {
+    /// Returns the inner storage of the vector.
+    #[inline]
+    pub fn into_inner_slice(self) -> &'a mut [T] {
+        let slice = self.into_inner();
+        unsafe { core::slice::from_raw_parts_mut(slice.as_mut_ptr() as *mut T, slice.len()) }
+    }
+}
+
 impl<const N: usize, T> FixedVec<[MaybeUninit<T>; N]> {
     /// Creates a new [`ArrayVec`] with an fixed-size array.
     #[inline]
@@ -114,6 +123,12 @@ impl<A: ?Sized + UninitArray> FixedVec<A> {
             Some(self.array.as_mut_ptr().add(self.len).read())
         }
     }
+
+    /// Clears the vector.
+    #[inline]
+    pub fn clear(&mut self) {
+        while self.pop().is_some() {}
+    }
 }
 
 impl<A: ?Sized + UninitArray> Deref for FixedVec<A> {
@@ -129,6 +144,15 @@ impl<A: ?Sized + UninitArray> DerefMut for FixedVec<A> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { core::slice::from_raw_parts_mut(self.array.as_mut_ptr(), self.len) }
+    }
+}
+
+impl<A: UninitArray> Extend<A::Item> for FixedVec<A> {
+    #[inline]
+    fn extend<I: IntoIterator<Item = A::Item>>(&mut self, iter: I) {
+        for item in iter {
+            self.push(item);
+        }
     }
 }
 

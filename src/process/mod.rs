@@ -68,9 +68,6 @@ impl<T: ?Sized> ProcessPtr<T> {
 pub struct SleepingState {
     /// The conditions that the process is waiting on.
     pub wake_ups: ProcessPtr<[WakeUp]>,
-    /// The `index` pointer that should be overwritten with the index of the condition that
-    /// occurred before waking the process up.
-    pub index: ProcessPtr<usize>,
 }
 
 /// A process that's running on the system.

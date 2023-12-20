@@ -11,7 +11,6 @@
 use core::alloc::Layout;
 use core::arch::asm;
 use core::mem::{size_of, MaybeUninit};
-use core::sync::atomic::Ordering;
 
 use limine::{File, MemmapEntry, MemmapType};
 use x86_64::{sti, Efer, PageTable, PageTableEntry, PhysAddr, VirtAddr};
@@ -20,13 +19,12 @@ use crate::boot::{handle_mapping_error, oom};
 use crate::cpu::paging::{
     AddressSpace, AddressSpaceContext, HhdmToken, FOUR_KIB, HHDM_OFFSET, KERNEL_BIT, NOT_OWNED_BIT,
 };
-use crate::global::{AtomicProcessId, Global, MemoryAllocator, OutOfMemory};
+use crate::global::{Global, Inputs, MemoryAllocator, OutOfMemory, Processes};
 use crate::hcf::die;
 use crate::log;
 use crate::process::Registers;
 use crate::sync::Mutex;
-use crate::utility::array_vec::ArrayVec;
-use crate::utility::{BumpAllocator, FixedVec, HumanByteCount};
+use crate::utility::{BumpAllocator, FixedVec, HumanByteCount, PhysBumpAllocator};
 
 mod req;
 
@@ -211,7 +209,7 @@ unsafe extern "C" fn main() -> ! {
     //  The ownership of the largest usable segment is transferred to the bootstrap allocator. We
     //  won't be accessing it until the allocator is no longer used.
     let mut bootstrap_allocator = unsafe {
-        BumpAllocator::new(
+        PhysBumpAllocator::new(
             largest_usable_segment.base,
             largest_usable_segment.base + largest_usable_segment.length,
         )
@@ -222,7 +220,7 @@ unsafe extern "C" fn main() -> ! {
     let init_program_cmdline = unsafe { init_program.cmdline.as_cstr().to_bytes() };
 
     let init_program_cmdline_phys_addr = bootstrap_allocator
-        .allocate_phys(Layout::for_value(init_program_cmdline))
+        .allocate(Layout::for_value(init_program_cmdline))
         .unwrap_or_else(|_| oom());
 
     unsafe {
@@ -256,7 +254,7 @@ unsafe extern "C" fn main() -> ! {
     // Allocate the kernel stack.
     const KERNEL_STACK_SIZE: usize = 16 * FOUR_KIB;
     let kernel_stack_base = bootstrap_allocator
-        .allocate_phys(Layout::new::<[u8; KERNEL_STACK_SIZE]>())
+        .allocate(Layout::new::<[u8; KERNEL_STACK_SIZE]>())
         .unwrap_or_else(|_| oom());
     let kernel_stack_top = kernel_stack_base as usize + HHDM_OFFSET + KERNEL_STACK_SIZE;
 
@@ -264,7 +262,7 @@ unsafe extern "C" fn main() -> ! {
 
     // Allocate the `ToNewStack` instance that will be passed to the new stack.
     let to_new_stack_phys_addr = bootstrap_allocator
-        .allocate_phys(Layout::new::<ToNewStack>())
+        .allocate(Layout::new::<ToNewStack>())
         .unwrap_or_else(|_| oom());
 
     unsafe {
@@ -319,7 +317,7 @@ type UsableMemoryVec = FixedVec<[MaybeUninit<MemmapEntry>; 8]>;
 /// from the bootloader's stack to the kernel's stack (or save their physical addresses).
 struct ToNewStack {
     /// The allocator that's being used to allocate memory during the booting process.
-    bootstrap_allocator: BumpAllocator,
+    bootstrap_allocator: PhysBumpAllocator,
     /// The virtual address of the kernel stack.
     kernel_stack_top: VirtAddr,
     /// The segments that are usable by the global allocator.
@@ -344,7 +342,7 @@ struct ToNewStack {
 /// The function that is called upon entering the new stack and address space.
 extern "C" fn with_new_stack(package: *mut ToNewStack) -> ! {
     let ToNewStack {
-        mut bootstrap_allocator,
+        bootstrap_allocator,
         kernel_stack_top,
         usable_memory,
         kernel_physical_base,
@@ -356,17 +354,18 @@ extern "C" fn with_new_stack(package: *mut ToNewStack) -> ! {
     // SAFETY:
     //  The HHDM has been initiated when we changed address-space.
     let hhdm = unsafe { HhdmToken::get() };
+    let mut bootstrap_allocator = BumpAllocator::new(bootstrap_allocator, hhdm);
 
     // =============================================================================================
     // CPU Initialization
     // =============================================================================================
-    crate::cpu::gdt::init(&mut bootstrap_allocator, kernel_stack_top, hhdm)
-        .unwrap_or_else(|_| oom());
-    crate::cpu::idt::init(&mut bootstrap_allocator, hhdm).unwrap_or_else(|_| oom());
+    crate::cpu::gdt::init(&mut bootstrap_allocator, kernel_stack_top).unwrap_or_else(|_| oom());
+    crate::cpu::idt::init(&mut bootstrap_allocator).unwrap_or_else(|_| oom());
 
     // =============================================================================================
     // Global Kernel State
     // =============================================================================================
+    let processes = Processes::new(&mut bootstrap_allocator).unwrap_or_else(|_| oom());
     let allocator = initialize_global_allocator(&usable_memory, bootstrap_allocator, hhdm);
 
     log::trace!("Initializing the global kernel state...");
@@ -375,8 +374,8 @@ extern "C" fn with_new_stack(package: *mut ToNewStack) -> ! {
             allocator: Mutex::new(allocator),
             kernel_physical_base,
             address_space,
-            current_process: AtomicProcessId::new(0),
-            processes: Mutex::new(ArrayVec::new_array()),
+            inputs: Mutex::new(Inputs::empty()),
+            processes,
         },
         kernel_stack_top,
     );
@@ -389,12 +388,14 @@ extern "C" fn with_new_stack(package: *mut ToNewStack) -> ! {
     // =============================================================================================
     // Init Program Loading
     // =============================================================================================
-    glob.processes
-        .lock()
-        .push(crate::boot::init_process::load_any(
+    let id = glob
+        .processes
+        .spawn_process(crate::boot::init_process::load_any(
             init_process,
             init_process_cmdline,
-        ));
+        ))
+        .unwrap();
+    glob.processes.schedule(id).unwrap();
 
     // Allow interrupts.
     sti();
@@ -403,8 +404,7 @@ extern "C" fn with_new_stack(package: *mut ToNewStack) -> ! {
 
     unsafe {
         let (l4_table, registers) = {
-            let processes = glob.processes.lock();
-            let current = &processes[glob.current_process.load(Ordering::Relaxed)];
+            let current = glob.processes.current();
             (current.address_space.l4_table(), current.registers)
         };
 
@@ -597,8 +597,8 @@ fn initialize_global_allocator(
 
     // Compute the range of pages that have been used by the bootstrap allocator to avoid
     // pushing them to the free list later on.
-    let used_start = x86_64::page_align_down(bootstrap_allocator.top() as usize) as PhysAddr;
-    let used_stop = bootstrap_allocator.original_top();
+    let used_start = x86_64::page_align_down(bootstrap_allocator.inner.top() as usize) as PhysAddr;
+    let used_stop = bootstrap_allocator.inner.original_top();
 
     log::trace!(
         "Total memory used during boot: {}",
@@ -644,13 +644,13 @@ fn initialize_global_allocator(
 ///
 /// This function assumes that the provided HHDM offset is valid.
 pub unsafe fn create_kernel_address_space(
-    boostrap_allocator: &mut BumpAllocator,
+    boostrap_allocator: &mut PhysBumpAllocator,
     hhdm: usize,
     kernel_physical_base: PhysAddr,
     memory_upper_bound: PhysAddr,
 ) -> PhysAddr {
     struct Context<'a> {
-        allocator: &'a mut BumpAllocator,
+        allocator: &'a mut PhysBumpAllocator,
         hhdm: usize,
     }
 
@@ -658,7 +658,7 @@ pub unsafe fn create_kernel_address_space(
         #[inline]
         fn allocate_page(&mut self) -> Result<PhysAddr, OutOfMemory> {
             self.allocator
-                .allocate_phys(core::alloc::Layout::new::<PageTable>())
+                .allocate(core::alloc::Layout::new::<PageTable>())
         }
 
         #[inline]

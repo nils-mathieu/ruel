@@ -92,7 +92,7 @@ fn wait_a_bit() {
 #[allow(dead_code)]
 pub enum Irq {
     /// IRQ 0.
-    Zero,
+    Timer,
     /// IRQ 1.
     PS2Keyboard,
     /// IRQ 2.
@@ -130,7 +130,7 @@ bitflags! {
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     pub struct Irqs: u16 {
         /// IRQ 0.
-        const ZERO = 1 << 0;
+        const TIMER = 1 << 0;
         /// IRQ 1.
         const KEYBOARD = 1 << 1;
         /// IRQ 2.

@@ -8,7 +8,6 @@ use core::mem::size_of;
 use x86_64::{lidt, Exception, GateDesc, Idt, Ring, TablePtr, VirtAddr};
 
 use super::gdt::{DOUBLE_FAULT_IST_INDEX, KERNEL_CODE_SELECTOR};
-use super::paging::HhdmToken;
 use crate::cpu::idt::pic::{Irq, Irqs};
 use crate::global::OutOfMemory;
 use crate::log;
@@ -16,6 +15,7 @@ use crate::utility::BumpAllocator;
 
 mod handlers;
 mod pic;
+mod pit;
 
 /// The offset used by the PIC to remap the interrupts.
 ///
@@ -23,8 +23,8 @@ mod pic;
 const PIC_OFFSET: u8 = 32;
 
 /// Initializes the kernel's IDT.
-pub fn init(bootstrap_allocator: &mut BumpAllocator, hhdm: HhdmToken) -> Result<(), OutOfMemory> {
-    let idt = bootstrap_allocator.allocate::<Idt>(hhdm)?.write(Idt::EMPTY);
+pub fn init(bootstrap_allocator: &mut BumpAllocator) -> Result<(), OutOfMemory> {
+    let idt = bootstrap_allocator.allocate::<Idt>()?.write(Idt::EMPTY);
 
     log::trace!("IDT allocated at address: {:p}", idt);
 
@@ -53,10 +53,12 @@ pub fn init(bootstrap_allocator: &mut BumpAllocator, hhdm: HhdmToken) -> Result<
     idt[Exception::VmmCommunication] = trap_gate(handlers::vmm_communication as usize);
     idt[Exception::SecurityException] = trap_gate(handlers::security_exception as usize);
 
+    idt[PIC_OFFSET + Irq::Timer as u8] = int_gate(handlers::pic_timer as usize);
     idt[PIC_OFFSET + Irq::PS2Keyboard as u8] = int_gate(handlers::pic_ps2_keyboard as usize);
 
     pic::init();
-    pic::set_irq_mask(Irqs::all().difference(Irqs::KEYBOARD));
+    pit::init();
+    pic::set_irq_mask(Irqs::all().difference(Irqs::KEYBOARD | Irqs::TIMER));
 
     log::trace!("Loading the IDT...");
 

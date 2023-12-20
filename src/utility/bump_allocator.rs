@@ -26,15 +26,15 @@ use crate::global::OutOfMemory;
 /// The bump allocator allocates memory from the top of the memory region it owns. `base` remains
 /// unchanged during the lifetime of the bump allocator, while `top` is decremented every time
 /// a new page is allocated.
-pub struct BumpAllocator {
+pub struct PhysBumpAllocator {
     base: PhysAddr,
     top: PhysAddr,
 
     original_top: PhysAddr,
 }
 
-impl BumpAllocator {
-    /// Creates a new [`BumpAllocator`].
+impl PhysBumpAllocator {
+    /// Creates a new [`PhysBumpAllocator`].
     ///
     /// # Arguments
     ///
@@ -45,7 +45,7 @@ impl BumpAllocator {
     /// # Safety
     ///
     /// The caller must ensure that the memory region `[base, top)` is not used by anything else.
-    /// The created [`BumpAllocator`] instance logically "takes ownership" of the memory region
+    /// The created [`PhysBumpAllocator`] instance logically "takes ownership" of the memory region
     /// `[base, top)`.
     ///
     /// # Panics
@@ -85,7 +85,7 @@ impl BumpAllocator {
     ///
     /// The returned physical address is guaranteed to be aligned to `layout.align()`, and to
     /// be at least `layout.size()` bytes large.
-    pub fn allocate_phys(&mut self, layout: Layout) -> Result<PhysAddr, OutOfMemory> {
+    pub fn allocate(&mut self, layout: Layout) -> Result<PhysAddr, OutOfMemory> {
         let size = layout.size() as u64;
         let align = layout.align() as u64;
 
@@ -101,14 +101,26 @@ impl BumpAllocator {
         self.top = ret;
         Ok(ret)
     }
+}
+
+/// A memory allocator that uses a [`PhysBumpAllocator`] to allocate memory, but allows directly
+/// accessing the allocated memory though the higher-half direct mapping.
+pub struct BumpAllocator {
+    pub inner: PhysBumpAllocator,
+    pub hhdm: HhdmToken,
+}
+
+impl BumpAllocator {
+    /// Creates a new [`BumpAllocator`] from the provided [`PhysBumpAllocator`] and HHDM token.
+    #[inline]
+    pub fn new(inner: PhysBumpAllocator, hhdm: HhdmToken) -> Self {
+        Self { inner, hhdm }
+    }
 
     /// Allocates an isntance of `T` without initializing it.
-    pub fn allocate<T>(
-        &mut self,
-        _hhdm: HhdmToken,
-    ) -> Result<&'static mut MaybeUninit<T>, OutOfMemory> {
+    pub fn allocate<T>(&mut self) -> Result<&'static mut MaybeUninit<T>, OutOfMemory> {
         let layout = Layout::new::<T>();
-        let phys_addr = self.allocate_phys(layout)?;
+        let phys_addr = self.inner.allocate(layout)?;
         let virt_addr = (phys_addr as usize + HHDM_OFFSET) as *mut MaybeUninit<T>;
         debug_assert!(virt_addr as usize & (layout.align() - 1) == 0);
         Ok(unsafe { &mut *virt_addr })
@@ -117,11 +129,10 @@ impl BumpAllocator {
     /// Allocates a slice of `T`s without initializing it.
     pub fn allocate_slice<T>(
         &mut self,
-        _hhdm: HhdmToken,
         size: usize,
     ) -> Result<&'static mut [MaybeUninit<T>], OutOfMemory> {
         let layout = Layout::array::<T>(size).map_err(|_| OutOfMemory)?;
-        let phys_addr = self.allocate_phys(layout)?;
+        let phys_addr = self.inner.allocate(layout)?;
         let virt_addr = (phys_addr as usize + HHDM_OFFSET) as *mut MaybeUninit<T>;
         debug_assert!(virt_addr as usize & (layout.align() - 1) == 0);
         Ok(unsafe { core::slice::from_raw_parts_mut(virt_addr, size) })

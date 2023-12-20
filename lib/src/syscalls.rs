@@ -242,10 +242,6 @@ pub fn terminate_self() -> ! {
 ///
 /// - `wake_up_len`: The number of items in the `wake_ups` array.
 ///
-/// - `index`: A pointer to the index of the wake-up event that occurred, thus waking the process
-///   up. This pointer must reference a valid memory location to store a `usize`.
-///
-///
 /// # Returns
 ///
 /// - `INVALID_VALUE` if any of the wake-up events are invalid.
@@ -257,13 +253,12 @@ pub fn terminate_self() -> ! {
 /// When mutiple wake-up events occur at the same time, the index of the first one in the list
 /// is returned.
 #[inline]
-pub fn sleep(wake_ups: *mut WakeUp, wake_up_len: usize, index: *mut usize) -> SysResult {
+pub fn sleep(wake_ups: *mut WakeUp, wake_up_len: usize) -> SysResult {
     unsafe {
-        SysResult::from_raw(syscall3(
+        SysResult::from_raw(syscall2(
             Sysno::Sleep as usize,
             wake_ups as usize,
             wake_up_len,
-            index as usize,
         ))
     }
 }

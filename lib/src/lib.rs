@@ -11,6 +11,50 @@ pub use self::syscalls::*;
 mod sysresult;
 pub use self::sysresult::*;
 
+loose_enum! {
+    /// A boolean value.
+    ///
+    /// # Why is this needded?
+    ///
+    /// The layout of the standard `bool` type requires that only the bit patterns `0` and `1` are
+    /// valid. This makes the type unsuitable for use in any kind of FFI, as it's not guaranteed
+    /// that other languages will follow the same convention.
+    ///
+    /// This type is guaranteed to have the same layout as a `u8`, and thus can be used in FFI.
+    pub struct Bool: u8 {
+        /// The `false` value.
+        const FALSE = 0;
+        /// The `true` value.
+        const TRUE = 1;
+    }
+}
+
+impl Bool {
+    /// Creates a new [`Bool`] from the provided boolean value.
+    #[inline]
+    pub fn as_bool(self) -> bool {
+        self != Self::FALSE
+    }
+}
+
+impl From<bool> for Bool {
+    #[inline]
+    fn from(b: bool) -> Self {
+        if b {
+            Self::TRUE
+        } else {
+            Self::FALSE
+        }
+    }
+}
+
+impl From<Bool> for bool {
+    #[inline]
+    fn from(b: Bool) -> Self {
+        b.as_bool()
+    }
+}
+
 /// The ID of a process.
 pub type ProcessId = usize;
 
@@ -18,9 +62,7 @@ pub type ProcessId = usize;
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub union WakeUp {
-    /// The tag of this [`WakeUp`] variant.
-    ///
-    /// All other variants must have a field at offset 0 with this type.
+    /// The tag of the [`WakeUp`], indicating which condition is being waited on.
     pub tag: WakeUpTag,
     /// Indicates that the process is waiting for a byte of data to be available from the PS/2
     /// keyboard.
@@ -28,9 +70,11 @@ pub union WakeUp {
 }
 
 impl WakeUp {
-    /// Returns the tag of this [`WakeUp`] variant.
+    /// Returns the tag of this [`WakeUp` variant.
     #[inline]
     pub fn tag(&self) -> WakeUpTag {
+        // SAFETY:
+        //  The tag is in all variants of the union.
         unsafe { self.tag }
     }
 }
@@ -47,16 +91,21 @@ loose_enum! {
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct WakeUpPS2 {
-    /// The tag of this [`WakeUp`] variant.
+    /// The tag of the [`WakeUp`] variant.
     ///
-    /// This must be either [`WakeUpTag::PS2_ONE`] or [`WakeUpTag::PS2_TWO`].
+    /// For this variant, this is always [`WakeUpTag::PS2_KEYBOARD`].
     pub tag: WakeUpTag,
     /// A pointer to the byte of data that was read from the PS/2 port.
-    pub data: u8,
+    pub data: [u8; Self::MAX_DATA_LENGTH],
+    /// The number of bytes that were read from the PS/2 port.
+    pub count: u8,
 }
 
-unsafe impl Send for WakeUpPS2 {}
-unsafe impl Sync for WakeUpPS2 {}
+impl WakeUpPS2 {
+    /// The maximum nubmer of bytes that can be read from the PS/2 port during a single
+    /// quantum.
+    pub const MAX_DATA_LENGTH: usize = 5;
+}
 
 /// A slice of memory in the address space of a process.
 #[repr(C)]
