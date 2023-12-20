@@ -286,8 +286,6 @@ pub fn sleep(wake_ups: *mut WakeUp, wake_up_len: usize, index: *mut usize) -> Sy
 /// - `INVALID_VALUE` if `verbosity` is not in the range `0..=3`. This cannot happen with the API
 ///   provided by this crate as it uses a Rust enumeration that is guaranteed to be in that range.
 ///
-/// - `INVALID_VALUE` if the message contains invalid UTF-8 data.
-///
 /// # Returns
 ///
 /// Nothing.

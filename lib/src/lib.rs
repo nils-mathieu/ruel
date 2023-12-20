@@ -22,12 +22,9 @@ pub union WakeUp {
     ///
     /// All other variants must have a field at offset 0 with this type.
     pub tag: WakeUpTag,
-    /// Indicates that the process is waiting for a byte of data to be available on the first
-    /// PS/2 port.
-    pub ps2_one: WakeUpPS2,
-    /// Indicates that the process is waiting for a byte of data to be available on the second
-    /// PS/2 port.
-    pub ps2_two: WakeUpPS2,
+    /// Indicates that the process is waiting for a byte of data to be available from the PS/2
+    /// keyboard.
+    pub ps2_keyboard: WakeUpPS2,
 }
 
 impl WakeUp {
@@ -42,9 +39,7 @@ loose_enum! {
     /// A tag that describes which condition a [`WakeUp`] is waiting on.
     pub struct WakeUpTag: u8 {
         /// The process is waiting for a byte of data to be available on the first PS/2 port.
-        const PS2_ONE = 0;
-        /// The process is waiting for a byte of data to be available on the second PS/2 port.
-        const PS2_TWO = 1;
+        const PS2_KEYBOARD = 0;
     }
 }
 

@@ -146,7 +146,7 @@ pub unsafe extern "C" fn sleep(
         current.sleeping = Some(SleepingState { wake_ups, index });
     }
 
-    // TODO: Switch to the current process.
+    // TODO: Switch to another process.
     // Currently, because we don't have multitasking, just halt until the process is woken up.
 
     loop {

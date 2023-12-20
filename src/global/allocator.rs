@@ -1,13 +1,14 @@
-use core::alloc::Layout;
-use core::mem::{align_of, size_of, MaybeUninit};
+use core::mem::MaybeUninit;
 
 use x86_64::PhysAddr;
 
-use crate::cpu::paging::HHDM_OFFSET;
+use crate::cpu::paging::HhdmToken;
 use crate::utility::{BumpAllocator, FixedVec};
 
 /// A memory allocator that keeps track of a list of free regions.
 pub struct MemoryAllocator {
+    /// We know that the HHDM has been initated already.
+    _hhdm: HhdmToken,
     /// A list of the pages that are currently free and available for use.
     free_list: FixedVec<&'static mut [MaybeUninit<PhysAddr>]>,
 }
@@ -21,12 +22,14 @@ impl MemoryAllocator {
     ///
     /// The caller must ensure that the global HHDM has been initialized.
     pub unsafe fn empty(
+        hhdm: HhdmToken,
         bootstrap_allocator: &mut BumpAllocator,
         capacity: usize,
     ) -> Result<Self, OutOfMemory> {
-        let free_list_slice = unsafe { &mut *allocate_slice(bootstrap_allocator, capacity)? };
+        let free_list_slice = bootstrap_allocator.allocate_slice(hhdm, capacity)?;
 
         Ok(Self {
+            _hhdm: hhdm,
             free_list: FixedVec::new(free_list_slice),
         })
     }
@@ -56,19 +59,6 @@ impl MemoryAllocator {
         debug_assert!(page & 0xFFF == 0);
         self.free_list.push(page);
     }
-}
-
-/// Allocates a slice using the provided allocator.
-fn allocate_slice<T>(allocator: &mut BumpAllocator, len: usize) -> Result<*mut [T], OutOfMemory> {
-    let align = align_of::<T>();
-    let size = size_of::<T>()
-        .checked_next_multiple_of(align)
-        .ok_or(OutOfMemory)?;
-    let layout = Layout::from_size_align(size * len, align).unwrap();
-
-    let ptr = allocator.allocate(layout).map_err(|_| OutOfMemory)? as usize + HHDM_OFFSET;
-
-    Ok(core::ptr::slice_from_raw_parts_mut(ptr as *mut T, len))
 }
 
 /// An error returned when an allocation fails because the system is out of memory.

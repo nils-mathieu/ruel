@@ -94,7 +94,7 @@ pub enum Irq {
     /// IRQ 0.
     Zero,
     /// IRQ 1.
-    FirstPS2,
+    PS2Keyboard,
     /// IRQ 2.
     Two,
     /// IRQ 3.

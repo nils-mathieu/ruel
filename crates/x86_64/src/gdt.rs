@@ -2,7 +2,7 @@ use core::mem::size_of;
 
 use bitflags::bitflags;
 
-use crate::Ring;
+use crate::{Ring, VirtAddr};
 
 bitflags! {
     /// Represents a segment descriptor in the GDT.
@@ -145,6 +145,7 @@ pub struct TaskStateSegment {
     /// The privilege stack table, responsible for storing the stack pointers
     /// that should be used when switching to the corresponding privilege level.
     pub privilege_stack_table: [usize; 3],
+
     pub reserved1: u64,
 
     /// The interrupt stack table.
@@ -159,6 +160,70 @@ pub struct TaskStateSegment {
 
     /// The base address of the I/O permission bitmap.
     pub iomap_base: u16,
+}
+
+// Ensure that the TSS is 104 bytes long.
+const _: () = assert!(size_of::<TaskStateSegment>() == 0x68);
+
+impl TaskStateSegment {
+    /// An empty [`TaskStateSegment`].
+    pub const EMPTY: Self = Self {
+        reserved0: 0,
+        privilege_stack_table: [0; 3],
+        reserved1: 0,
+        interrupt_stack_table: [0; 7],
+        reserved2: 0,
+        reserved3: 0,
+        iomap_base: 0,
+    };
+
+    /// Sets the stack pointer for the provided IST index.
+    #[inline]
+    pub fn set_ist(&mut self, index: IstIndex, stack: VirtAddr) {
+        unsafe {
+            let table_ptr = core::ptr::addr_of_mut!(self.privilege_stack_table) as *mut usize;
+            table_ptr.add(index as usize).write_unaligned(stack);
+        }
+    }
+
+    /// Returns the stack pointer for the provided IST index.
+    #[inline]
+    pub fn ist(&self, index: IstIndex) -> usize {
+        unsafe {
+            let table_ptr = core::ptr::addr_of!(self.privilege_stack_table) as *const usize;
+            table_ptr.add(index as usize).read_unaligned()
+        }
+    }
+
+    /// Sets the stack pointer for the provided privilege level.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if `privilege` is `Ring::Three`.
+    #[inline]
+    pub fn set_privilege_stack(&mut self, privilege: Ring, stack: VirtAddr) {
+        assert!(privilege != Ring::Three);
+
+        unsafe {
+            let table_ptr = core::ptr::addr_of_mut!(self.privilege_stack_table) as *mut usize;
+            table_ptr.add(privilege as usize).write_unaligned(stack);
+        }
+    }
+
+    /// Returns the stack pointer for the provided privilege level.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if `privilege` is `Ring::Three`.
+    #[inline]
+    pub fn privilege_stack(&self, privilege: Ring) -> usize {
+        assert!(privilege != Ring::Three);
+
+        unsafe {
+            let table_ptr = core::ptr::addr_of!(self.privilege_stack_table) as *const usize;
+            table_ptr.add(privilege as usize).read_unaligned()
+        }
+    }
 }
 
 /// A possible IST index (within the [`TaskStateSegment`]).

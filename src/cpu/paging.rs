@@ -12,6 +12,25 @@ pub const ONE_GIB: usize = 1024 * 1024 * 1024;
 /// The offset of the higher-half direct map installed by the kernel during the booting process.
 pub const HHDM_OFFSET: VirtAddr = 0xFFFF_8000_0000_0000;
 
+/// A token that vouchers for the fact that the HHDM has been initiated.
+///
+/// When this token exists, physical addresses can be safely converted to a virtual address
+/// by adding [`HHDM_OFFSET`] to their value.
+#[derive(Clone, Copy)]
+pub struct HhdmToken(());
+
+impl HhdmToken {
+    /// Creates a new [`HhdmToken`].
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the HHDM has been initiated.
+    #[inline]
+    pub const unsafe fn get() -> Self {
+        Self(())
+    }
+}
+
 /// An error that might occur while attempting to map some virtual memory to some physical memory.
 #[derive(Debug, Clone, Copy)]
 pub enum MappingError {

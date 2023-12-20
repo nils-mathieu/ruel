@@ -9,6 +9,11 @@ use crate::IstIndex;
 #[derive(Debug, Clone, Copy)]
 pub struct Idt([GateDesc; 256]);
 
+impl Idt {
+    /// Creates a new [`Idt`].
+    pub const EMPTY: Self = Self([GateDesc::ABSENT; 256]);
+}
+
 impl Index<u8> for Idt {
     type Output = GateDesc;
 
@@ -49,6 +54,9 @@ impl IndexMut<Exception> for Idt {
 pub struct GateDesc([u64; 2]);
 
 impl GateDesc {
+    /// A gate descriptor that is not present in the IDT.
+    pub const ABSENT: Self = Self([0; 2]);
+
     /// Creates a new gate descriptor with the provided base address.
     ///
     /// # Arguments

@@ -1,16 +1,13 @@
 //! This module mainly provide constants describing the state of the GDT loaded by the kernel.
 
-use core::alloc::Layout;
 use core::mem::size_of;
 
 use x86_64::{IstIndex, Ring, SegmentFlags, SegmentSelector, TablePtr, TaskStateSegment, VirtAddr};
 
-use crate::cpu::paging::HHDM_OFFSET;
+use super::paging::{HhdmToken, FOUR_KIB};
 use crate::global::OutOfMemory;
 use crate::log;
 use crate::utility::BumpAllocator;
-
-use super::paging::FOUR_KIB;
 
 /// The selector of the kernel code segment.
 pub const KERNEL_CODE_SELECTOR: SegmentSelector = SegmentSelector::new(1, false, Ring::Zero);
@@ -61,60 +58,47 @@ pub const DOUBLE_FAULT_STACK_SIZE: usize = FOUR_KIB * 8;
 type Gdt = [u64; 7];
 
 /// Initializes our own GDT.
-///
-/// # Safety
-///
-/// This function assumes that the global HHDM has been initialized.
-///
-/// The provided `kernel_stack_top` must be the top of the kernel stack.
-pub unsafe fn init(
+pub fn init(
     bootstrap_allocator: &mut BumpAllocator,
     kernel_stack_top: VirtAddr,
+    hhdm: HhdmToken,
 ) -> Result<(), OutOfMemory> {
-    log::trace!("Initializing the TSS...");
-
-    let double_fault_stack_phys_addr =
-        bootstrap_allocator.allocate(Layout::new::<[u8; DOUBLE_FAULT_STACK_SIZE]>())?;
     let double_fault_stack =
-        double_fault_stack_phys_addr as usize + HHDM_OFFSET + DOUBLE_FAULT_STACK_SIZE;
+        bootstrap_allocator.allocate_slice::<u8>(hhdm, DOUBLE_FAULT_STACK_SIZE)?;
 
-    let tss_phys_addr = bootstrap_allocator.allocate(Layout::new::<TaskStateSegment>())?;
-    let tss_ptr = (tss_phys_addr as usize + HHDM_OFFSET) as *mut TaskStateSegment;
+    let tss = bootstrap_allocator
+        .allocate::<TaskStateSegment>(hhdm)?
+        .write(TaskStateSegment::EMPTY);
 
-    unsafe {
-        core::ptr::write_bytes(tss_ptr, 0x00, 1);
+    log::trace!("TSS allocated at address: {:p}", tss);
 
-        let tss = &mut *tss_ptr;
+    tss.iomap_base = size_of::<TaskStateSegment>() as u16;
+    tss.set_ist(DOUBLE_FAULT_IST_INDEX, unsafe {
+        double_fault_stack.as_ptr().add(double_fault_stack.len()) as VirtAddr
+    });
+    tss.set_privilege_stack(Ring::Zero, kernel_stack_top);
 
-        tss.iomap_base = size_of::<TaskStateSegment>() as u16;
-        tss.interrupt_stack_table[DOUBLE_FAULT_IST_INDEX as usize] = double_fault_stack;
-        tss.privilege_stack_table[Ring::Zero as usize] = kernel_stack_top;
-    }
+    let gdt = bootstrap_allocator.allocate::<Gdt>(hhdm)?;
 
-    log::trace!("Initializing the GDT...");
+    log::trace!("GDT allocated at address: {:p}", gdt);
 
-    let gdt_phys_addr = bootstrap_allocator.allocate(Layout::new::<Gdt>())?;
-    let gdt_ptr = (gdt_phys_addr as usize + HHDM_OFFSET) as *mut Gdt;
-
-    unsafe {
-        let tss_seg = x86_64::create_tss_segment(tss_ptr);
-        *gdt_ptr = [
-            0,
-            KERNEL_CODE_SEGMENT,
-            KERNEL_DATA_SEGMENT,
-            USER_DATA_SEGMENT,
-            USER_CODE_SEGMENT,
-            tss_seg[0],
-            tss_seg[1],
-        ];
-    }
+    let tss_seg = x86_64::create_tss_segment(tss);
+    gdt.write([
+        0,
+        KERNEL_CODE_SEGMENT,
+        KERNEL_DATA_SEGMENT,
+        USER_DATA_SEGMENT,
+        USER_CODE_SEGMENT,
+        tss_seg[0],
+        tss_seg[1],
+    ]);
 
     log::trace!("Loading the created GDT...");
 
     unsafe {
         let gdtr = TablePtr {
             limit: size_of::<Gdt>() as u16 - 1,
-            base: gdt_ptr as *const (),
+            base: gdt as *mut _ as *const (),
         };
 
         x86_64::lgdt(&gdtr);

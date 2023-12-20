@@ -1,6 +1,6 @@
 //! Implementations of the ISRs for the IST of the kernel.
 
-use x86_64::{read_cr2, InterruptStackFrame};
+use x86_64::{read_cr2, InterruptStackFrame, PageFaultError};
 
 use crate::cpu::idt::pic::Irq;
 use crate::global::GlobalToken;
@@ -89,10 +89,11 @@ pub extern "x86-interrupt" fn general_protection_fault(
     );
 }
 
-pub extern "x86-interrupt" fn page_fault(frame: InterruptStackFrame, error_code: u64) {
+pub extern "x86-interrupt" fn page_fault(frame: InterruptStackFrame, error_code: PageFaultError) {
     panic!(
         "\
-        Received a PAGE_FAULT fault with error code {:#x}.\n\
+        Received a PAGE_FAULT fault.\n\
+        > ERROR   = {:?}\n\
         > RIP     = {:#x}\n\
         > RSP     = {:#x}\n\
         > ADDRESS = {:#x}\
@@ -161,7 +162,7 @@ pub extern "x86-interrupt" fn security_exception(
     );
 }
 
-pub extern "x86-interrupt" fn pic_first_ps2(_frame: InterruptStackFrame) {
+pub extern "x86-interrupt" fn pic_ps2_keyboard(_frame: InterruptStackFrame) {
     let glob = GlobalToken::get();
 
     debug_assert!(ps2::status().intersects(PS2Status::OUTPUT));
@@ -177,8 +178,8 @@ pub extern "x86-interrupt" fn pic_first_ps2(_frame: InterruptStackFrame) {
             let wake_ups = unsafe { sleeping.wake_ups.as_mut() };
 
             for (i, wake_up) in wake_ups.iter_mut().enumerate() {
-                if wake_up.tag() == ruel_sys::WakeUpTag::PS2_ONE {
-                    wake_up.ps2_one.data = scancode;
+                if wake_up.tag() == ruel_sys::WakeUpTag::PS2_KEYBOARD {
+                    wake_up.ps2_keyboard.data = scancode;
                     unsafe { *sleeping.index.as_mut() = i };
 
                     break;
@@ -193,5 +194,5 @@ pub extern "x86-interrupt" fn pic_first_ps2(_frame: InterruptStackFrame) {
         }
     }
 
-    super::pic::end_of_interrupt(Irq::FirstPS2);
+    super::pic::end_of_interrupt(Irq::PS2Keyboard);
 }

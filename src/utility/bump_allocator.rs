@@ -1,7 +1,9 @@
 use core::alloc::Layout;
+use core::mem::MaybeUninit;
 
 use x86_64::PhysAddr;
 
+use crate::cpu::paging::{HhdmToken, HHDM_OFFSET};
 use crate::global::OutOfMemory;
 
 /// A memory allocator that uses a pointer bumping strategy to allocate new memory pages.
@@ -83,7 +85,7 @@ impl BumpAllocator {
     ///
     /// The returned physical address is guaranteed to be aligned to `layout.align()`, and to
     /// be at least `layout.size()` bytes large.
-    pub fn allocate(&mut self, layout: Layout) -> Result<PhysAddr, OutOfMemory> {
+    pub fn allocate_phys(&mut self, layout: Layout) -> Result<PhysAddr, OutOfMemory> {
         let size = layout.size() as u64;
         let align = layout.align() as u64;
 
@@ -98,5 +100,30 @@ impl BumpAllocator {
 
         self.top = ret;
         Ok(ret)
+    }
+
+    /// Allocates an isntance of `T` without initializing it.
+    pub fn allocate<T>(
+        &mut self,
+        _hhdm: HhdmToken,
+    ) -> Result<&'static mut MaybeUninit<T>, OutOfMemory> {
+        let layout = Layout::new::<T>();
+        let phys_addr = self.allocate_phys(layout)?;
+        let virt_addr = (phys_addr as usize + HHDM_OFFSET) as *mut MaybeUninit<T>;
+        debug_assert!(virt_addr as usize & (layout.align() - 1) == 0);
+        Ok(unsafe { &mut *virt_addr })
+    }
+
+    /// Allocates a slice of `T`s without initializing it.
+    pub fn allocate_slice<T>(
+        &mut self,
+        _hhdm: HhdmToken,
+        size: usize,
+    ) -> Result<&'static mut [T], OutOfMemory> {
+        let layout = Layout::array::<T>(size).map_err(|_| OutOfMemory)?;
+        let phys_addr = self.allocate_phys(layout)?;
+        let virt_addr = (phys_addr as usize + HHDM_OFFSET) as *mut T;
+        debug_assert!(virt_addr as usize & (layout.align() - 1) == 0);
+        Ok(unsafe { core::slice::from_raw_parts_mut(virt_addr, size) })
     }
 }

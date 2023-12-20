@@ -18,7 +18,7 @@ use x86_64::{sti, Efer, PageTable, PageTableEntry, PhysAddr, VirtAddr};
 
 use crate::boot::{handle_mapping_error, oom};
 use crate::cpu::paging::{
-    AddressSpace, AddressSpaceContext, FOUR_KIB, HHDM_OFFSET, KERNEL_BIT, NOT_OWNED_BIT,
+    AddressSpace, AddressSpaceContext, HhdmToken, FOUR_KIB, HHDM_OFFSET, KERNEL_BIT, NOT_OWNED_BIT,
 };
 use crate::global::{AtomicProcessId, Global, MemoryAllocator, OutOfMemory};
 use crate::hcf::die;
@@ -222,7 +222,7 @@ unsafe extern "C" fn main() -> ! {
     let init_program_cmdline = unsafe { init_program.cmdline.as_cstr().to_bytes() };
 
     let init_program_cmdline_phys_addr = bootstrap_allocator
-        .allocate(Layout::for_value(init_program_cmdline))
+        .allocate_phys(Layout::for_value(init_program_cmdline))
         .unwrap_or_else(|_| oom());
 
     unsafe {
@@ -253,18 +253,18 @@ unsafe extern "C" fn main() -> ! {
 
     log::trace!("Kernel L4 Table stored at address {:#x}", address_space);
 
-    log::trace!("Creating the kernel stack...");
-
     // Allocate the kernel stack.
     const KERNEL_STACK_SIZE: usize = 16 * FOUR_KIB;
     let kernel_stack_base = bootstrap_allocator
-        .allocate(Layout::new::<[u8; KERNEL_STACK_SIZE]>())
+        .allocate_phys(Layout::new::<[u8; KERNEL_STACK_SIZE]>())
         .unwrap_or_else(|_| oom());
     let kernel_stack_top = kernel_stack_base as usize + HHDM_OFFSET + KERNEL_STACK_SIZE;
 
+    log::trace!("Kernel stack allocated at address: {:#x}", kernel_stack_top);
+
     // Allocate the `ToNewStack` instance that will be passed to the new stack.
     let to_new_stack_phys_addr = bootstrap_allocator
-        .allocate(Layout::new::<ToNewStack>())
+        .allocate_phys(Layout::new::<ToNewStack>())
         .unwrap_or_else(|_| oom());
 
     unsafe {
@@ -353,18 +353,21 @@ extern "C" fn with_new_stack(package: *mut ToNewStack) -> ! {
         address_space,
     } = unsafe { package.read() };
 
+    // SAFETY:
+    //  The HHDM has been initiated when we changed address-space.
+    let hhdm = unsafe { HhdmToken::get() };
+
     // =============================================================================================
     // CPU Initialization
     // =============================================================================================
-    unsafe {
-        crate::cpu::gdt::init(&mut bootstrap_allocator, kernel_stack_top).unwrap_or_else(|_| oom());
-        crate::cpu::idt::init(&mut bootstrap_allocator).unwrap_or_else(|_| oom());
-    }
+    crate::cpu::gdt::init(&mut bootstrap_allocator, kernel_stack_top, hhdm)
+        .unwrap_or_else(|_| oom());
+    crate::cpu::idt::init(&mut bootstrap_allocator, hhdm).unwrap_or_else(|_| oom());
 
     // =============================================================================================
     // Global Kernel State
     // =============================================================================================
-    let allocator = unsafe { initialize_global_allocator(&usable_memory, bootstrap_allocator) };
+    let allocator = initialize_global_allocator(&usable_memory, bootstrap_allocator, hhdm);
 
     log::trace!("Initializing the global kernel state...");
     let glob = crate::global::init(
@@ -569,16 +572,10 @@ fn validate_and_find_usable_segments(
 /// This function takes ownership of the bootstrap allocator because after this function has been
 /// called, the bootstrap allocator should no longer be used. The ownership of the remaining
 /// pages is transferred to the global allocator.
-///
-/// # Safety
-///
-/// - The HHDM offset must be initialized.
-///
-/// - The memory map provided must be valid and the ownership of all of its content is transfered
-///   to created allocator.
-unsafe fn initialize_global_allocator(
+fn initialize_global_allocator(
     usable_memory: &UsableMemoryVec,
     mut bootstrap_allocator: BumpAllocator,
+    hhdm: HhdmToken,
 ) -> MemoryAllocator {
     log::trace!("Initializing the global allocator...");
 
@@ -594,7 +591,8 @@ unsafe fn initialize_global_allocator(
     );
 
     let mut allocator = unsafe {
-        MemoryAllocator::empty(&mut bootstrap_allocator, pages_needed).unwrap_or_else(|_| oom())
+        MemoryAllocator::empty(hhdm, &mut bootstrap_allocator, pages_needed)
+            .unwrap_or_else(|_| oom())
     };
 
     // Compute the range of pages that have been used by the bootstrap allocator to avoid
@@ -660,7 +658,7 @@ pub unsafe fn create_kernel_address_space(
         #[inline]
         fn allocate_page(&mut self) -> Result<PhysAddr, OutOfMemory> {
             self.allocator
-                .allocate(core::alloc::Layout::new::<PageTable>())
+                .allocate_phys(core::alloc::Layout::new::<PageTable>())
         }
 
         #[inline]

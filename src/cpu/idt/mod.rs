@@ -3,14 +3,12 @@
 //! The implementation of the Interrupt Service Routines (ISRs) are located in the [`handlers`]
 //! module.
 
-use core::alloc::Layout;
-use core::arch::asm;
 use core::mem::size_of;
 
-use x86_64::{Exception, GateDesc, Idt};
+use x86_64::{lidt, Exception, GateDesc, Idt, TablePtr};
 
 use super::gdt::{DOUBLE_FAULT_IST_INDEX, KERNEL_CODE_SELECTOR};
-use super::paging::HHDM_OFFSET;
+use super::paging::HhdmToken;
 use crate::cpu::idt::pic::{Irq, Irqs};
 use crate::global::OutOfMemory;
 use crate::log;
@@ -25,12 +23,12 @@ mod pic;
 const PIC_OFFSET: u8 = 32;
 
 /// Initializes the kernel's IDT.
-pub fn init(bootstrap_allocator: &mut BumpAllocator) -> Result<(), OutOfMemory> {
-    log::trace!("Initializing the IDT...");
+pub fn init(bootstrap_allocator: &mut BumpAllocator, hhdm: HhdmToken) -> Result<(), OutOfMemory> {
+    let idt = bootstrap_allocator.allocate::<Idt>(hhdm)?.write(Idt::EMPTY);
 
-    let idt_phys_addr = bootstrap_allocator.allocate(Layout::new::<Idt>())?;
-    let idt = unsafe { &mut *((idt_phys_addr as usize + HHDM_OFFSET) as *mut Idt) };
+    log::trace!("IDT allocated at address: {:p}", idt);
 
+    // Initilaize the IDT with our handlers.
     idt[Exception::DivisionError] = trap_gate(handlers::division_error as usize);
     idt[Exception::Debug] = trap_gate(handlers::debug as usize);
     idt[Exception::NonMaskableInterrupt] = int_gate(handlers::non_maskable_interrupt as usize);
@@ -55,26 +53,18 @@ pub fn init(bootstrap_allocator: &mut BumpAllocator) -> Result<(), OutOfMemory> 
     idt[Exception::VmmCommunication] = trap_gate(handlers::vmm_communication as usize);
     idt[Exception::SecurityException] = trap_gate(handlers::security_exception as usize);
 
-    idt[PIC_OFFSET + Irq::FirstPS2 as u8] = int_gate(handlers::pic_first_ps2 as usize);
+    idt[PIC_OFFSET + Irq::PS2Keyboard as u8] = int_gate(handlers::pic_ps2_keyboard as usize);
 
     pic::init();
     pic::set_irq_mask(Irqs::all().difference(Irqs::KEYBOARD));
 
     log::trace!("Loading the IDT...");
 
-    #[repr(C, packed)]
-    struct Idtr {
-        limit: u16,
-        base: usize,
-    }
-
-    let idtr = Idtr {
-        limit: size_of::<Idt>() as u16 - 1,
-        base: idt as *const _ as usize,
-    };
-
     unsafe {
-        asm!("lidt [{}]", in(reg) &idtr, options(nostack, readonly, preserves_flags));
+        lidt(&TablePtr {
+            limit: size_of::<Idt>() as u16 - 1,
+            base: idt as *mut _ as *const _,
+        });
     }
 
     Ok(())
