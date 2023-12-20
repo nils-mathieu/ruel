@@ -11,11 +11,18 @@ use x86_64::{Exception, GateDesc, Idt};
 
 use super::gdt::{DOUBLE_FAULT_IST_INDEX, KERNEL_CODE_SELECTOR};
 use super::paging::HHDM_OFFSET;
+use crate::cpu::idt::pic::{Irq, Irqs};
 use crate::global::OutOfMemory;
 use crate::log;
 use crate::utility::BumpAllocator;
 
 mod handlers;
+mod pic;
+
+/// The offset used by the PIC to remap the interrupts.
+///
+/// The next 16 entries in the IDT are reserved for the PIC.
+const PIC_OFFSET: u8 = 32;
 
 /// Initializes the kernel's IDT.
 pub fn init(bootstrap_allocator: &mut BumpAllocator) -> Result<(), OutOfMemory> {
@@ -47,6 +54,11 @@ pub fn init(bootstrap_allocator: &mut BumpAllocator) -> Result<(), OutOfMemory> 
     idt[Exception::HypervisorInjection] = trap_gate(handlers::hypervisor_injection as usize);
     idt[Exception::VmmCommunication] = trap_gate(handlers::vmm_communication as usize);
     idt[Exception::SecurityException] = trap_gate(handlers::security_exception as usize);
+
+    idt[PIC_OFFSET + Irq::FirstPS2 as u8] = int_gate(handlers::pic_first_ps2 as usize);
+
+    pic::init();
+    pic::set_irq_mask(Irqs::all().difference(Irqs::KEYBOARD));
 
     log::trace!("Loading the IDT...");
 

@@ -1,5 +1,8 @@
 //! This module provides the different structures and functions used to manage running processes.
 
+use core::ptr::NonNull;
+
+use ruel_sys::WakeUp;
 use x86_64::{PageTable, PageTableIndex, PhysAddr, VirtAddr};
 
 use crate::cpu::paging::{AddressSpace, AddressSpaceContext, HHDM_OFFSET, KERNEL_BIT};
@@ -25,6 +28,51 @@ impl Registers {
     pub const RDI_INDEX: usize = 3;
 }
 
+/// A pointer into a process's address space.
+pub struct ProcessPtr<T: ?Sized>(NonNull<T>);
+
+unsafe impl<T: ?Sized + Send> Send for ProcessPtr<T> {}
+unsafe impl<T: ?Sized + Sync> Sync for ProcessPtr<T> {}
+
+impl<T: ?Sized> ProcessPtr<T> {
+    /// Creates a new [`ProcessPtr<T>`] instance.
+    #[inline]
+    pub const fn new(ptr: NonNull<T>) -> Self {
+        Self(ptr)
+    }
+
+    // /// Returns a reference to the inner value.
+    // ///
+    // /// # Safety
+    // ///
+    // /// The process that owns this pointer must be still around.
+    // #[inline]
+    // pub unsafe fn as_ref(&self) -> &T {
+    //     unsafe { self.0.as_ref() }
+    // }
+
+    /// Returns a mutable reference to the inner value.
+    ///
+    /// # Safety
+    ///
+    /// The process that owns this pointer must be still around, and the memory it references
+    /// must not be shared with another eventually running process.
+    #[inline]
+    pub unsafe fn as_mut(&mut self) -> &mut T {
+        unsafe { self.0.as_mut() }
+    }
+}
+
+/// When a process is currently waiting for some condition to be met, this type stores which
+/// conditions are being waited on.
+pub struct SleepingState {
+    /// The conditions that the process is waiting on.
+    pub wake_ups: ProcessPtr<[WakeUp]>,
+    /// The `index` pointer that should be overwritten with the index of the condition that
+    /// occurred before waking the process up.
+    pub index: ProcessPtr<usize>,
+}
+
 /// A process that's running on the system.
 pub struct Process {
     /// The address space of the process.
@@ -32,6 +80,9 @@ pub struct Process {
 
     /// The current state of the process.
     pub registers: Registers,
+
+    /// The state of the process.
+    pub sleeping: Option<SleepingState>,
 }
 
 impl Process {
@@ -55,6 +106,7 @@ impl Process {
         Ok(Self {
             address_space,
             registers: Registers::default(),
+            sleeping: None,
         })
     }
 }

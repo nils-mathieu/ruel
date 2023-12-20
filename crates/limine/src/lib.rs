@@ -6,72 +6,13 @@
 #![feature(used_with_arg)]
 #![forbid(unsafe_op_in_unsafe_fn)]
 
-use bitflags::bitflags;
 use core::ffi::c_char;
+
+use bitflags::bitflags;
+use loose_enum::loose_enum;
 
 mod limine_ptr;
 pub use limine_ptr::*;
-
-/// Creates a type that acts like an enum, but internally allows every bit patterns (unknown
-/// values). This makes the library safer than using a regular enum, as it prevents
-/// undefined behavior in case the bootloader sends an unknown value for some reason (for example
-/// because it uses a version that we do not support).
-///
-/// The syntax is basically the same as the [`bitflags!`] macro.
-macro_rules! create_loose_enum {
-    (
-        $(#[$($attr:meta)*])*
-        $vis:vis struct $name:ident: $inner:ty {
-            $(
-                $(#[$($variant_attr:meta)*])*
-                const $variant:ident = $value:expr;
-            )*
-        }
-    ) => {
-        $(#[$($attr)*])*
-        #[repr(transparent)]
-        #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-        $vis struct $name($inner);
-
-        impl $name {
-            $(
-                $(#[$($variant_attr)*])*
-                pub const $variant: Self = Self($value);
-            )*
-
-            #[doc = ::core::concat!("Creates a new [`", stringify!($name), "`] from the provided raw value.")]
-            #[inline]
-            pub fn from_raw(raw: $inner) -> Self {
-                Self(raw)
-            }
-
-            #[doc = ::core::concat!("Returns the raw value of this [`", stringify!($name), "`].")]
-            #[inline]
-            pub fn as_raw(self) -> $inner {
-                self.0
-            }
-
-            #[doc = ::core::concat!("Returns whether this [`", stringify!($name), "`] is a known enum value.")]
-            #[allow(clippy::manual_range_patterns)]
-            pub fn is_known(self) -> bool {
-                ::core::matches!(self.0, $(
-                    | $value
-                )*)
-            }
-        }
-
-        impl ::core::fmt::Debug for $name {
-            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-                match self.0 {
-                    $(
-                        $value => write!(f, stringify!($variant)),
-                    )*
-                    _ => f.debug_tuple(stringify!($name)).field(&self.0).finish(),
-                }
-            }
-        }
-    }
-}
 
 /// The base version of the protocol implemented by the kernel.
 pub const BASE_VERSION: u64 = 1;
@@ -260,7 +201,7 @@ pub struct MemmapEntry {
     pub ty: MemmapType,
 }
 
-create_loose_enum! {
+loose_enum! {
     /// The type of a [`MemmapEntry`].
     pub struct MemmapType: u32 {
         /// The memory region is usable.
@@ -490,7 +431,7 @@ pub struct File {
     pub part_uuid: Uuid,
 }
 
-create_loose_enum! {
+loose_enum! {
     /// The type of media used to store a [`File`].
     pub struct MediaType: u64 {
         const GENERIC = 0;

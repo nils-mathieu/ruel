@@ -4,12 +4,12 @@ use core::mem::{align_of, size_of, MaybeUninit};
 use x86_64::PhysAddr;
 
 use crate::cpu::paging::HHDM_OFFSET;
-use crate::utility::{ArrayVec, BumpAllocator};
+use crate::utility::{BumpAllocator, FixedVec};
 
 /// A memory allocator that keeps track of a list of free regions.
 pub struct MemoryAllocator {
     /// A list of the pages that are currently free and available for use.
-    free_list: ArrayVec<&'static mut [MaybeUninit<PhysAddr>]>,
+    free_list: FixedVec<&'static mut [MaybeUninit<PhysAddr>]>,
 }
 
 impl MemoryAllocator {
@@ -27,7 +27,7 @@ impl MemoryAllocator {
         let free_list_slice = unsafe { &mut *allocate_slice(bootstrap_allocator, capacity)? };
 
         Ok(Self {
-            free_list: ArrayVec::new(free_list_slice),
+            free_list: FixedVec::new(free_list_slice),
         })
     }
 

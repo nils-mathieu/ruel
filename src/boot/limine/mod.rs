@@ -11,20 +11,22 @@
 use core::alloc::Layout;
 use core::arch::asm;
 use core::mem::{size_of, MaybeUninit};
+use core::sync::atomic::Ordering;
 
 use limine::{File, MemmapEntry, MemmapType};
-use x86_64::{Efer, PageTable, PageTableEntry, PhysAddr, VirtAddr};
+use x86_64::{sti, Efer, PageTable, PageTableEntry, PhysAddr, VirtAddr};
 
 use crate::boot::{handle_mapping_error, oom};
 use crate::cpu::paging::{
     AddressSpace, AddressSpaceContext, FOUR_KIB, HHDM_OFFSET, KERNEL_BIT, NOT_OWNED_BIT,
 };
-use crate::global::{Global, MemoryAllocator, OutOfMemory};
+use crate::global::{AtomicProcessId, Global, MemoryAllocator, OutOfMemory};
 use crate::hcf::die;
 use crate::log;
 use crate::process::Registers;
 use crate::sync::Mutex;
-use crate::utility::{ArrayVec, BumpAllocator, HumanByteCount};
+use crate::utility::array_vec::ArrayVec;
+use crate::utility::{BumpAllocator, FixedVec, HumanByteCount};
 
 mod req;
 
@@ -309,7 +311,7 @@ unsafe extern "C" fn main() -> ! {
 ///
 /// This type accomodates for up to 8 usable memory segments. This should be fine in most cases,
 /// as there are usually 2-4 segments.
-type UsableMemoryVec = ArrayVec<[MaybeUninit<MemmapEntry>; 8]>;
+type UsableMemoryVec = FixedVec<[MaybeUninit<MemmapEntry>; 8]>;
 
 /// A structure that's passed from the bootloader's stack to the kernel's stack.
 ///
@@ -365,11 +367,13 @@ extern "C" fn with_new_stack(package: *mut ToNewStack) -> ! {
     let allocator = unsafe { initialize_global_allocator(&usable_memory, bootstrap_allocator) };
 
     log::trace!("Initializing the global kernel state...");
-    crate::global::init(
+    let glob = crate::global::init(
         Global {
             allocator: Mutex::new(allocator),
             kernel_physical_base,
             address_space,
+            current_process: AtomicProcessId::new(0),
+            processes: Mutex::new(ArrayVec::new_array()),
         },
         kernel_stack_top,
     );
@@ -382,11 +386,25 @@ extern "C" fn with_new_stack(package: *mut ToNewStack) -> ! {
     // =============================================================================================
     // Init Program Loading
     // =============================================================================================
-    let process = crate::boot::init_process::load_any(init_process, init_process_cmdline);
+    glob.processes
+        .lock()
+        .push(crate::boot::init_process::load_any(
+            init_process,
+            init_process_cmdline,
+        ));
+
+    // Allow interrupts.
+    sti();
 
     log::info!("Spawning the init process!");
 
     unsafe {
+        let (l4_table, registers) = {
+            let processes = glob.processes.lock();
+            let current = &processes[glob.current_process.load(Ordering::Relaxed)];
+            (current.address_space.l4_table(), current.registers)
+        };
+
         asm!(
             "
             mov cr3, {address_space}
@@ -397,8 +415,8 @@ extern "C" fn with_new_stack(package: *mut ToNewStack) -> ! {
             mov r11, 0x202
             sysretq
             ",
-            in("r11") &process.registers,
-            address_space = in(reg) process.address_space.l4_table(),
+            in("r11") &registers,
+            address_space = in(reg) l4_table,
             RIP_INDEX = const Registers::RIP_INDEX,
             RSP_INDEX = const Registers::RSP_INDEX,
             RBP_INDEX = const Registers::RBP_INDEX,

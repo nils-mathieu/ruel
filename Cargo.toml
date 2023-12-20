@@ -8,7 +8,13 @@ publish = false
 
 [workspace]
 resolver = "2"
-members = ["lib", "crates/limine", "crates/x86_64", "crates/elf"]
+members = [
+    "lib",
+    "crates/limine",
+    "crates/x86_64",
+    "crates/elf",
+    "crates/loose-enum",
+]
 
 [features]
 default = ["boot-limine", "debug-serial", "init-elf"]
@@ -28,3 +34,5 @@ ruel-sys = { path = "lib" }
 limine = { path = "crates/limine", optional = true }
 elf = { path = "crates/elf", optional = true }
 x86_64 = { path = "crates/x86_64" }
+
+bitflags = "2"

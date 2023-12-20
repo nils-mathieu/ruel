@@ -28,6 +28,7 @@ mod boot;
 mod cpu;
 mod global;
 mod hcf;
+mod io;
 mod linker;
 mod log;
 mod process;

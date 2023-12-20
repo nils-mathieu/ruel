@@ -143,3 +143,15 @@ impl RFlags {
         }
     }
 }
+
+/// Reads the content of the CR2 register.
+#[inline]
+pub fn read_cr2() -> u64 {
+    let cr2: u64;
+
+    unsafe {
+        asm!("mov {}, cr2", out(reg) cr2, options(nomem, nostack, preserves_flags));
+    }
+
+    cr2
+}

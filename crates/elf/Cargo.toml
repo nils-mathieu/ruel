@@ -6,4 +6,5 @@ edition = "2021"
 publish = false
 
 [dependencies]
+loose-enum = { path = "../loose-enum" }
 bitflags = { version = "2", default-features = false }

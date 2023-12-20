@@ -7,3 +7,4 @@ publish = false
 
 [dependencies]
 bitflags = { version = "2", default-features = false }
+loose-enum = { path = "../loose-enum" }

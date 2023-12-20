@@ -3,6 +3,8 @@
 pub enum Sysno {
     /// See [`terminate`](crate::terminate).
     Terminate,
+    /// See [`sleep`](crate::sleep).
+    Sleep,
     /// See [`kernel_log`](crate::kernel_log).
     KernelLog,
 }

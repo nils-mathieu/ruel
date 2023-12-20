@@ -1,5 +1,7 @@
 #![no_std]
 
+use loose_enum::loose_enum;
+
 mod sysno;
 pub use self::sysno::*;
 
@@ -11,6 +13,55 @@ pub use self::sysresult::*;
 
 /// The ID of a process.
 pub type ProcessId = usize;
+
+/// A condition that a process can wait on.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub union WakeUp {
+    /// The tag of this [`WakeUp`] variant.
+    ///
+    /// All other variants must have a field at offset 0 with this type.
+    pub tag: WakeUpTag,
+    /// Indicates that the process is waiting for a byte of data to be available on the first
+    /// PS/2 port.
+    pub ps2_one: WakeUpPS2,
+    /// Indicates that the process is waiting for a byte of data to be available on the second
+    /// PS/2 port.
+    pub ps2_two: WakeUpPS2,
+}
+
+impl WakeUp {
+    /// Returns the tag of this [`WakeUp`] variant.
+    #[inline]
+    pub fn tag(&self) -> WakeUpTag {
+        unsafe { self.tag }
+    }
+}
+
+loose_enum! {
+    /// A tag that describes which condition a [`WakeUp`] is waiting on.
+    pub struct WakeUpTag: u8 {
+        /// The process is waiting for a byte of data to be available on the first PS/2 port.
+        const PS2_ONE = 0;
+        /// The process is waiting for a byte of data to be available on the second PS/2 port.
+        const PS2_TWO = 1;
+    }
+}
+
+/// A variant of [`WakeUp`]
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct WakeUpPS2 {
+    /// The tag of this [`WakeUp`] variant.
+    ///
+    /// This must be either [`WakeUpTag::PS2_ONE`] or [`WakeUpTag::PS2_TWO`].
+    pub tag: WakeUpTag,
+    /// A pointer to the byte of data that was read from the PS/2 port.
+    pub data: u8,
+}
+
+unsafe impl Send for WakeUpPS2 {}
+unsafe impl Sync for WakeUpPS2 {}
 
 /// A slice of memory in the address space of a process.
 #[repr(C)]

@@ -1,10 +1,17 @@
 //! Defines the system call handlers.
 
 use core::fmt::Write;
+use core::ptr::NonNull;
+use core::sync::atomic::Ordering::Relaxed;
 
-use ruel_sys::{ProcessId, Slice, SysResult, Verbosity};
+use ruel_sys::{ProcessId, Slice, SysResult, Verbosity, WakeUp};
+use x86_64::hlt;
 
+use crate::cpu::paging::HHDM_OFFSET;
+use crate::global::GlobalToken;
 use crate::log;
+use crate::process::{ProcessPtr, SleepingState};
+use crate::utility::RestoreInterrupts;
 
 /// See [`ruel_sys::terminate`].
 pub unsafe extern "C" fn terminate(
@@ -15,7 +22,11 @@ pub unsafe extern "C" fn terminate(
     _: usize,
     _: usize,
 ) -> SysResult {
-    if process_id == ProcessId::MAX {
+    let glob = GlobalToken::get();
+
+    let current = glob.current_process.load(Relaxed);
+
+    if process_id == ProcessId::MAX || process_id == current {
         todo!("terminate_self()");
     }
 
@@ -74,6 +85,77 @@ pub unsafe extern "C" fn kernel_log(
     }
 
     log::log!(verbosity, "{}", ProcessMessage { data });
+
+    SysResult::SUCCESS
+}
+
+/// See [`ruel_sys::sleep`].
+pub unsafe extern "C" fn sleep(
+    wake_ups: usize,
+    wake_up_len: usize,
+    index: usize,
+    _: usize,
+    _: usize,
+    _: usize,
+) -> SysResult {
+    // FIXME: Properly ensure that the memory referenced is valid.
+
+    {
+        let wake_ups = unsafe {
+            core::slice::from_raw_parts(wake_ups as *const ruel_sys::WakeUp, wake_up_len)
+        };
+        let index = index as *mut usize;
+
+        if index.is_null() {
+            return SysResult::INVALID_VALUE;
+        }
+
+        // Ensure that the wake-up events are properly constructed.
+
+        for wake_up in wake_ups {
+            if !wake_up.tag().is_known() {
+                return SysResult::INVALID_VALUE;
+            }
+        }
+    }
+
+    // Put the current process to sleep.
+
+    let glob = GlobalToken::get();
+    let current_process = glob.current_process.load(Relaxed);
+
+    {
+        // Prevent interrupts while we're holding the lock.
+        let _without_interrupts = RestoreInterrupts::without_interrupts();
+
+        let mut processes = glob.processes.lock();
+        let current = &mut processes[current_process];
+
+        // Convert the input pointers to the kernel's address space so that they can be accessed
+        // even if the process ends up waking up in a different address space.
+        // FIXME: Properly handle errors.
+        let wake_up = current.address_space.translate(wake_ups).unwrap() as usize + HHDM_OFFSET;
+        let wake_up = unsafe { NonNull::new_unchecked(wake_up as *mut WakeUp) };
+        let wake_ups = ProcessPtr::new(NonNull::slice_from_raw_parts(wake_up, wake_up_len));
+        let index = current.address_space.translate(index).unwrap() as usize + HHDM_OFFSET;
+        let index = unsafe { NonNull::new_unchecked(index as *mut usize) };
+        let index = ProcessPtr::new(index);
+
+        // Update the state of the process.
+        assert!(current.sleeping.is_none());
+        current.sleeping = Some(SleepingState { wake_ups, index });
+    }
+
+    // TODO: Switch to the current process.
+    // Currently, because we don't have multitasking, just halt until the process is woken up.
+
+    loop {
+        if glob.processes.lock()[current_process].sleeping.is_none() {
+            break;
+        }
+
+        hlt();
+    }
 
     SysResult::SUCCESS
 }

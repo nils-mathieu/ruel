@@ -1,5 +1,7 @@
 use core::ops::{Index, IndexMut};
 
+use bitflags::bitflags;
+
 use crate::IstIndex;
 
 /// An Interrupt Descriptor Table.
@@ -143,4 +145,32 @@ pub struct InterruptStackFrame {
     pub sp: u64,
     /// The stack segment to restore when returning from the interrupt.
     pub ss: u64,
+}
+
+bitflags! {
+    /// The error code pushed by the CPU when a page fault occurs.
+    #[derive(Debug, Clone, Copy)]
+    #[repr(transparent)]
+    pub struct PageFaultError: u32 {
+        /// Whether the page fault was caused by an access violation.
+        ///
+        /// Otherwise, it's because the page was not present in the page table.
+        const PRESENT = 1 << 0;
+
+        /// Whether the page fault was caused by a write operation.
+        ///
+        /// Otherwise, it was caused by a read operation.
+        const WRITE = 1 << 1;
+
+        /// Whether the page fault was caused by a write to a reserved bit.
+        const RESERVED_WRITE = 1 << 2;
+
+        /// Whether the page fault was caused in userland.
+        ///
+        /// Note that this does not necessarily mean that the error was a privilege violation.
+        const USER = 1 << 3;
+
+        /// Whether the page fault was caused by an instruction fetch on a non-executable page.
+        const INSTRUCTION_FETCH = 1 << 4;
+    }
 }

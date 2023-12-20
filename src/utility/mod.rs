@@ -7,7 +7,7 @@ mod guards;
 pub use self::guards::*;
 
 pub mod array_vec;
-pub use self::array_vec::ArrayVec;
+pub use self::array_vec::FixedVec;
 
 mod bump_allocator;
 pub use self::bump_allocator::*;

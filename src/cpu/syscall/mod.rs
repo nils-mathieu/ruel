@@ -12,7 +12,7 @@ mod handlers;
 type SystemCallFn = unsafe extern "C" fn(usize, usize, usize, usize, usize, usize) -> SysResult;
 
 /// The total number of system calls.
-const SYSTEM_CALL_COUNT: usize = 2;
+const SYSTEM_CALL_COUNT: usize = 3;
 
 /// A lookup table of system call handlers.
 ///
@@ -20,7 +20,7 @@ const SYSTEM_CALL_COUNT: usize = 2;
 /// to perform a system call with an invalid index should always return the
 /// [`SysResult::INVALID_VALUE`] error.
 static SYSTEM_CALLS: [SystemCallFn; SYSTEM_CALL_COUNT] =
-    [handlers::terminate, handlers::kernel_log];
+    [handlers::terminate, handlers::sleep, handlers::kernel_log];
 
 /// The function that is called when a userspace program executes the `syscall` instruction.
 ///

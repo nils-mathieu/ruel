@@ -13,6 +13,7 @@ name = "elf"
 version = "0.0.1"
 dependencies = [
  "bitflags",
+ "loose-enum",
 ]
 
 [[package]]
@@ -20,12 +21,18 @@ name = "limine"
 version = "0.0.1"
 dependencies = [
  "bitflags",
+ "loose-enum",
 ]
+
+[[package]]
+name = "loose-enum"
+version = "0.0.1"
 
 [[package]]
 name = "ruel"
 version = "0.0.1"
 dependencies = [
+ "bitflags",
  "elf",
  "limine",
  "ruel-sys",
@@ -35,6 +42,9 @@ dependencies = [
 [[package]]
 name = "ruel-sys"
 version = "0.1.0"
+dependencies = [
+ "loose-enum",
+]
 
 [[package]]
 name = "x86_64"

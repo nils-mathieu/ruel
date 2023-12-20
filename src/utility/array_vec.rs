@@ -2,12 +2,15 @@ use core::mem::MaybeUninit;
 use core::ops::{Deref, DerefMut};
 
 /// A vector of fixed size. It cannot grow.
-pub struct ArrayVec<A: ?Sized + UninitArray> {
+pub type ArrayVec<T, const N: usize> = FixedVec<[MaybeUninit<T>; N]>;
+
+/// A vector of fixed size. It cannot grow.
+pub struct FixedVec<A: ?Sized + UninitArray> {
     len: usize,
     array: A,
 }
 
-impl<A: UninitArray> ArrayVec<A> {
+impl<A: UninitArray> FixedVec<A> {
     /// Creates a new [`ArrayVec`] with the given array.
     #[inline]
     pub const fn new(array: A) -> Self {
@@ -23,7 +26,7 @@ impl<A: UninitArray> ArrayVec<A> {
     }
 }
 
-impl<const N: usize, T> ArrayVec<[MaybeUninit<T>; N]> {
+impl<const N: usize, T> FixedVec<[MaybeUninit<T>; N]> {
     /// Creates a new [`ArrayVec`] with an fixed-size array.
     #[inline]
     pub const fn new_array() -> Self {
@@ -31,7 +34,7 @@ impl<const N: usize, T> ArrayVec<[MaybeUninit<T>; N]> {
     }
 }
 
-impl<A: ?Sized + UninitArray> ArrayVec<A> {
+impl<A: ?Sized + UninitArray> FixedVec<A> {
     /// Returns the length of the vector.
     ///
     /// This is the number of elements that have been initialized in the vector.
@@ -67,7 +70,7 @@ impl<A: ?Sized + UninitArray> ArrayVec<A> {
     }
 }
 
-impl<A: ?Sized + UninitArray> ArrayVec<A> {
+impl<A: ?Sized + UninitArray> FixedVec<A> {
     /// Pushes an item to the end of the vector without checking whether
     /// the vector is full already.
     ///
@@ -113,7 +116,7 @@ impl<A: ?Sized + UninitArray> ArrayVec<A> {
     }
 }
 
-impl<A: ?Sized + UninitArray> Deref for ArrayVec<A> {
+impl<A: ?Sized + UninitArray> Deref for FixedVec<A> {
     type Target = [A::Item];
 
     #[inline]
@@ -122,14 +125,14 @@ impl<A: ?Sized + UninitArray> Deref for ArrayVec<A> {
     }
 }
 
-impl<A: ?Sized + UninitArray> DerefMut for ArrayVec<A> {
+impl<A: ?Sized + UninitArray> DerefMut for FixedVec<A> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { core::slice::from_raw_parts_mut(self.array.as_mut_ptr(), self.len) }
     }
 }
 
-impl<A: ?Sized + UninitArray> Drop for ArrayVec<A> {
+impl<A: ?Sized + UninitArray> Drop for FixedVec<A> {
     #[inline]
     fn drop(&mut self) {
         let slice: &mut [A::Item] = self;
@@ -137,7 +140,7 @@ impl<A: ?Sized + UninitArray> Drop for ArrayVec<A> {
     }
 }
 
-impl<A: UninitArray> IntoIterator for ArrayVec<A> {
+impl<A: UninitArray> IntoIterator for FixedVec<A> {
     type IntoIter = IntoIter<A>;
     type Item = A::Item;
 
@@ -151,7 +154,7 @@ impl<A: UninitArray> IntoIterator for ArrayVec<A> {
     }
 }
 
-impl<'a, A: ?Sized + UninitArray> IntoIterator for &'a ArrayVec<A> {
+impl<'a, A: ?Sized + UninitArray> IntoIterator for &'a FixedVec<A> {
     type Item = &'a A::Item;
     type IntoIter = core::slice::Iter<'a, A::Item>;
 
@@ -161,7 +164,7 @@ impl<'a, A: ?Sized + UninitArray> IntoIterator for &'a ArrayVec<A> {
     }
 }
 
-impl<'a, A: ?Sized + UninitArray> IntoIterator for &'a mut ArrayVec<A> {
+impl<'a, A: ?Sized + UninitArray> IntoIterator for &'a mut FixedVec<A> {
     type Item = &'a mut A::Item;
     type IntoIter = core::slice::IterMut<'a, A::Item>;
 

@@ -66,6 +66,33 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
         unsafe { &mut *(self.context.physical_to_virtual(self.root) as *mut PageTable) }
     }
 
+    /// Attempts to translate the provided virtual address to a physical address.
+    pub fn translate(&self, virt: VirtAddr) -> Option<PhysAddr> {
+        let [p1, p2, p3, p4, _] = PageTableIndex::break_virtual_address(virt);
+        let offset = (virt & 0xFFF) as u64;
+
+        unsafe {
+            let l4 = &*(self.context.physical_to_virtual(self.root) as *const PageTable);
+            if !l4[p4].is_present() {
+                return None;
+            }
+            let l3 = &*(self.context.physical_to_virtual(l4[p4].address()) as *const PageTable);
+            if !l3[p3].is_present() {
+                return None;
+            }
+            let l2 = &*(self.context.physical_to_virtual(l3[p3].address()) as *const PageTable);
+            if !l2[p2].is_present() {
+                return None;
+            }
+            let l1 = &*(self.context.physical_to_virtual(l2[p2].address()) as *const PageTable);
+            if !l1[p1].is_present() {
+                return None;
+            }
+
+            Some(l1[p1].address() + offset)
+        }
+    }
+
     /// Returns the 4KiB page table entry for the provided virtual address.
     ///
     /// # Arguments

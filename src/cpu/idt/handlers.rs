@@ -1,6 +1,10 @@
 //! Implementations of the ISRs for the IST of the kernel.
 
-use x86_64::InterruptStackFrame;
+use x86_64::{read_cr2, InterruptStackFrame};
+
+use crate::cpu::idt::pic::Irq;
+use crate::global::GlobalToken;
+use crate::io::ps2::{self, PS2Status};
 
 pub extern "x86-interrupt" fn division_error(_stack_frame: InterruptStackFrame) {
     panic!("Received a DIVISION_ERROR fault.");
@@ -89,10 +93,14 @@ pub extern "x86-interrupt" fn page_fault(frame: InterruptStackFrame, error_code:
     panic!(
         "\
         Received a PAGE_FAULT fault with error code {:#x}.\n\
-        > RIP = {:#x}\n\
-        > RSP = {:#x}\
+        > RIP     = {:#x}\n\
+        > RSP     = {:#x}\n\
+        > ADDRESS = {:#x}\
         ",
-        error_code, frame.ip, frame.sp,
+        error_code,
+        frame.ip,
+        frame.sp,
+        read_cr2(),
     );
 }
 
@@ -151,4 +159,39 @@ pub extern "x86-interrupt" fn security_exception(
         "Received a SECURITY_EXCEPTION fault with error code {:#x}.",
         error_code
     );
+}
+
+pub extern "x86-interrupt" fn pic_first_ps2(_frame: InterruptStackFrame) {
+    let glob = GlobalToken::get();
+
+    debug_assert!(ps2::status().intersects(PS2Status::OUTPUT));
+    let scancode = ps2::read_data();
+
+    // Check if any process is waiting for a byte of data to be available on the first PS/2 port.
+    let mut processes = glob.processes.lock();
+
+    for process in &mut *processes {
+        let mut woken_up = false;
+
+        if let Some(ref mut sleeping) = process.sleeping {
+            let wake_ups = unsafe { sleeping.wake_ups.as_mut() };
+
+            for (i, wake_up) in wake_ups.iter_mut().enumerate() {
+                if wake_up.tag() == ruel_sys::WakeUpTag::PS2_ONE {
+                    wake_up.ps2_one.data = scancode;
+                    unsafe { *sleeping.index.as_mut() = i };
+
+                    break;
+                }
+            }
+
+            woken_up = true;
+        }
+
+        if woken_up {
+            process.sleeping = None;
+        }
+    }
+
+    super::pic::end_of_interrupt(Irq::FirstPS2);
 }

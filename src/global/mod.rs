@@ -4,10 +4,16 @@ mod allocator;
 pub use self::allocator::*;
 
 use core::ops::Deref;
+use core::sync::atomic::AtomicUsize;
 
 use x86_64::{PhysAddr, VirtAddr};
 
+use crate::process::Process;
 use crate::sync::{Mutex, OnceLock};
+use crate::utility::array_vec::ArrayVec;
+
+/// [`ruel_sys::ProcessId`], but its atomic counterpart.
+pub type AtomicProcessId = AtomicUsize;
 
 /// Stores the global state of the kernel.
 pub struct Global {
@@ -18,6 +24,11 @@ pub struct Global {
     pub kernel_physical_base: PhysAddr,
     /// The physical address of the L4 page table in memory.
     pub address_space: PhysAddr,
+
+    /// The ID of the process currently executing on the CPU.
+    pub current_process: AtomicProcessId,
+    /// The processes that are currently running on the system.
+    pub processes: Mutex<ArrayVec<Process, 32>>,
 }
 
 /// The global state of the kernel.
