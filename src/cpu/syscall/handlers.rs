@@ -4,14 +4,13 @@ use core::fmt::Write;
 use core::mem::MaybeUninit;
 use core::ptr::NonNull;
 
-use ruel_sys::{PS2Buffer, ProcessConfig, SysResult, Verbosity, WakeUp, WakeUpTag};
-use x86_64::hlt;
+use ruel_sys::{Framebuffer, PS2Buffer, ProcessConfig, SysResult, Verbosity, WakeUp, WakeUpTag};
+use x86_64::{hlt, PageTableEntry, PhysAddr, VirtAddr};
 
-use crate::cpu::paging::HHDM_OFFSET;
+use crate::cpu::paging::{MappingError, HHDM_OFFSET};
 use crate::global::GlobalToken;
 use crate::log;
 use crate::process::{ProcessPtr, SleepingState};
-use crate::utility::RestoreInterrupts;
 
 /// Returns the provided value if the result is [`None`].
 macro_rules! try_or {
@@ -94,13 +93,10 @@ pub unsafe extern "C" fn sleep(
 
     {
         // Prevent interrupts while we're holding the lock.
-        let _without_interrupts = RestoreInterrupts::without_interrupts();
-
         let mut current_process = glob.processes.current();
 
         // Convert the input pointers to the kernel's address space so that they can be accessed
         // even if the process ends up waking up in a different address space.
-        // FIXME: Properly handle errors.
         let wake_up =
             current_process.address_space.translate(wake_ups).unwrap() as usize + HHDM_OFFSET;
         let wake_up = unsafe { NonNull::new_unchecked(wake_up as *mut WakeUp) };
@@ -136,7 +132,6 @@ pub unsafe extern "C" fn read_ps2(
     let ret = unsafe { &mut *(ret as *mut MaybeUninit<PS2Buffer>) };
     let ret = ret.write(PS2Buffer::EMPTY);
 
-    let mut _without_interrupts = RestoreInterrupts::without_interrupts();
     let mut process = glob.processes.current();
 
     if !process.config.intersects(ProcessConfig::DONT_BLOCK) {
@@ -145,13 +140,11 @@ pub unsafe extern "C" fn read_ps2(
         }));
 
         drop(process);
-        drop(_without_interrupts);
 
         while glob.processes.current().sleeping.is_some() {
             hlt();
         }
 
-        _without_interrupts = RestoreInterrupts::without_interrupts();
         process = glob.processes.current();
     }
 
@@ -163,6 +156,78 @@ pub unsafe extern "C" fn read_ps2(
     process.io_states.ps2_keyboard.clear();
 
     SysResult::SUCCESS
+}
+
+/// See [`ruel_sys::acquire_framebuffers`].
+pub unsafe extern "C" fn acquire_framebuffers(
+    ret: usize,
+    count: usize,
+    _: usize,
+    _: usize,
+    _: usize,
+    _: usize,
+) -> SysResult {
+    let glob = GlobalToken::get();
+
+    let ret = unsafe { (ret as *mut MaybeUninit<Framebuffer>).as_mut() };
+    let count = unsafe { &mut *(count as *mut usize) };
+
+    if glob.framebuffers.acquire(glob.processes.current_id()) {
+        assert_eq!(glob.framebuffers.as_slice().len(), 1);
+
+        if let Some(ret) = ret {
+            let framebuffer = glob.framebuffers.as_slice()[0];
+
+            // Allocate the framebuffer in the user's address space.
+            let mut process = glob.processes.current();
+
+            match process.address_space.map_range(
+                0x100_0000, // TODO: Allocate virtual memory
+                (framebuffer.address as VirtAddr - HHDM_OFFSET) as PhysAddr,
+                framebuffer.size(),
+                PageTableEntry::WRITABLE | PageTableEntry::USER_ACCESSIBLE,
+            ) {
+                Ok(()) => (),
+                Err(MappingError::OutOfMemory) => return SysResult::OUT_OF_MEMORY,
+                Err(MappingError::AlreadyMapped) => unreachable!("framebuffer already mapped"),
+            }
+
+            // Save the mapping in the metadata.
+            let metadata = unsafe { glob.framebuffers.metadata_mut() };
+
+            metadata[0].virt_address = framebuffer.address as usize;
+            metadata[0].virt_size = framebuffer.size();
+
+            ret.write(Framebuffer {
+                address: 0x100_0000 as *mut u8,
+                ..framebuffer
+            });
+        }
+
+        *count = glob.framebuffers.as_slice().len();
+
+        SysResult::SUCCESS
+    } else {
+        SysResult::RESOURCE_BUSY
+    }
+}
+
+/// See [`ruel_sys::release_framebuffers`].
+pub unsafe extern "C" fn release_framebuffers(
+    _: usize,
+    _: usize,
+    _: usize,
+    _: usize,
+    _: usize,
+    _: usize,
+) -> SysResult {
+    let glob = GlobalToken::get();
+
+    if glob.framebuffers.release(glob.processes.current_id()) {
+        SysResult::SUCCESS
+    } else {
+        SysResult::MISSING_CAPABILITY
+    }
 }
 
 /// See [`ruel_sys::kernel_log`].

@@ -4,6 +4,9 @@ use core::ops::{Deref, DerefMut};
 use super::UninitArray;
 
 /// A vector of fixed size. It cannot grow.
+pub type ArrayVec<T, const N: usize> = FixedVec<[MaybeUninit<T>; N]>;
+
+/// A vector of fixed size. It cannot grow.
 pub struct FixedVec<A: ?Sized + UninitArray> {
     len: u32,
     array: A,

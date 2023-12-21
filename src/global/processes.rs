@@ -35,12 +35,6 @@ impl Processes {
         })
     }
 
-    /// Returns whether the given process ID is currently present in the system.
-    #[inline]
-    pub fn exists(&self, id: ProcessId) -> bool {
-        self.list.lock().is_present(id)
-    }
-
     /// Schedules the given process to run on the current CPU.
     ///
     /// # Safety
@@ -53,7 +47,8 @@ impl Processes {
 
     /// Schedules the given process to run on the current CPU.
     pub fn schedule(&self, id: ProcessId) -> Result<(), ProcessNotFound> {
-        if self.exists(id) {
+        let list = self.list.lock();
+        if list.is_present(id) {
             self.schedule_unchecked(id);
             Ok(())
         } else {
@@ -68,6 +63,10 @@ impl Processes {
     }
 
     /// Returns the process ID of the process currently running on the CPU.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if no process is running on the current CPU.
     #[inline]
     pub fn current_id(&self) -> ProcessId {
         let id = self.current_process.get();

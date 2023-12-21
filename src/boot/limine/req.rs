@@ -47,6 +47,13 @@ static MODULE: ModuleRequest = ModuleRequest {
     internal_modules: LiminePtr::NULL,
 };
 
+#[used(linker)]
+static FRAMEBUFFER: FramebufferRequest = FramebufferRequest {
+    id: Id::FRAMEBUFFER,
+    response: ResponsePtr::NULL,
+    revision: 0,
+};
+
 /// A token that vouchers for common assumptions that the Kernel has to make in order to
 /// access the data provided by the bootloader.
 ///
@@ -122,6 +129,21 @@ impl<'a> Token<'a> {
         match unsafe { MODULE.response.read() } {
             Some(resp) => unsafe { resp.modules.cast().slice(resp.module_count as usize) },
             None => &[],
+        }
+    }
+
+    /// Reads the framebuffer provided by the user.
+    pub fn framebuffer(self) -> &'a [&'a Framebuffer0] {
+        let response = match unsafe { FRAMEBUFFER.response.read() } {
+            Some(response) => response,
+            None => return &[],
+        };
+
+        unsafe {
+            response
+                .framebuffers
+                .cast()
+                .slice(response.framebuffer_count as usize)
         }
     }
 }

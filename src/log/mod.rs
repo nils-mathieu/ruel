@@ -8,7 +8,6 @@ use core::fmt::Arguments;
 use ruel_sys::Verbosity;
 
 use crate::sync::Mutex;
-use crate::utility::RestoreInterrupts;
 
 mod display;
 pub use self::display::*;
@@ -42,7 +41,6 @@ impl<'a> Message<'a> {
         // Prevent multiple threads from printing at the same time.
         static MESSAGE_LOCK: Mutex<()> = Mutex::new(());
         let _guard = MESSAGE_LOCK.lock();
-        let _without_interrupts = RestoreInterrupts::without_interrupts();
 
         #[cfg(feature = "debug-serial")]
         let _ = core::fmt::write(

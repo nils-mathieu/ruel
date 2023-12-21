@@ -5,6 +5,8 @@ use core::convert::Infallible;
 use core::mem::MaybeUninit;
 use core::sync::atomic::Ordering::{Acquire, Release};
 
+use crate::utility::RestoreInterrupts;
+
 use self::state::*;
 
 /// A lock which can only be initialized once and then accessed immutably.
@@ -88,6 +90,8 @@ impl<T> OnceLock<T> {
 
     #[cold]
     fn get_or_try_init_cold<E>(&self, init: impl FnOnce() -> Result<T, E>) -> Result<&T, E> {
+        let _restore_interrupts = RestoreInterrupts::without_interrupts();
+
         loop {
             let state = self.state.compare_exchange_weak(
                 State::Uninitialized,

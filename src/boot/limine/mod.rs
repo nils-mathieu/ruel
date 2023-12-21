@@ -10,21 +10,23 @@
 
 use core::alloc::Layout;
 use core::arch::asm;
-use core::mem::{size_of, MaybeUninit};
+use core::mem::size_of;
 
-use limine::{File, MemmapEntry, MemmapType};
+use limine::{File, FramebufferMemoryModel, MemmapEntry, MemmapType};
+use ruel_sys::{Framebuffer, FramebufferFormat};
 use x86_64::{sti, Efer, PageTable, PageTableEntry, PhysAddr, VirtAddr};
 
 use crate::boot::{handle_mapping_error, oom};
 use crate::cpu::paging::{
     AddressSpace, AddressSpaceContext, HhdmToken, FOUR_KIB, HHDM_OFFSET, KERNEL_BIT, NOT_OWNED_BIT,
 };
-use crate::global::{Global, MemoryAllocator, OutOfMemory, Processes};
+use crate::global::{Framebuffers, Global, MemoryAllocator, OutOfMemory, Processes};
 use crate::hcf::die;
 use crate::log;
 use crate::process::Registers;
 use crate::sync::Mutex;
-use crate::utility::{BumpAllocator, FixedVec, HumanByteCount, PhysBumpAllocator};
+use crate::utility::array_vec::ArrayVec;
+use crate::utility::{BumpAllocator, HumanByteCount, PhysBumpAllocator};
 
 mod req;
 
@@ -109,7 +111,7 @@ unsafe extern "C" fn main() -> ! {
         die();
     }
 
-    let mut usable_memory = UsableMemoryVec::new_array();
+    let mut usable_memory = ArrayVec::new_array();
     validate_and_find_usable_segments(memory_map, &mut usable_memory);
 
     let bootloader_hhdm = token
@@ -191,6 +193,13 @@ unsafe extern "C" fn main() -> ! {
     // HHDM changes).
     let init_program_phys_addr = init_program.address.as_ptr() as u64 - bootloader_hhdm;
 
+    let mut usable_framebuffers = ArrayVec::new_array();
+    parse_framebuffers(
+        token.framebuffer(),
+        bootloader_hhdm as usize,
+        &mut usable_framebuffers,
+    );
+
     // =============================================================================================
     // Bootstrap Allocator
     // =============================================================================================
@@ -271,6 +280,7 @@ unsafe extern "C" fn main() -> ! {
             ToNewStack {
                 bootstrap_allocator,
                 kernel_stack_top,
+                usable_framebuffers,
                 usable_memory,
                 kernel_physical_base: kernel_address.physical_base,
                 init_process: core::slice::from_raw_parts(
@@ -305,12 +315,6 @@ unsafe extern "C" fn main() -> ! {
     }
 }
 
-/// The type used to store the usable memory.
-///
-/// This type accomodates for up to 8 usable memory segments. This should be fine in most cases,
-/// as there are usually 2-4 segments.
-type UsableMemoryVec = FixedVec<[MaybeUninit<MemmapEntry>; 8]>;
-
 /// A structure that's passed from the bootloader's stack to the kernel's stack.
 ///
 /// Because virtual-memory references are invalidated, we need to copy everything we need
@@ -326,7 +330,9 @@ struct ToNewStack {
     ///
     /// Those segments do include the segment that is currently used by the bootstrap
     /// allocator. We need to be careful not to mark the pages it has already issued as free.
-    usable_memory: UsableMemoryVec,
+    usable_memory: ArrayVec<MemmapEntry, 8>,
+    /// The usable framebuffers.
+    usable_framebuffers: ArrayVec<Framebuffer, 4>,
     /// The physical address of the kernel image.
     kernel_physical_base: PhysAddr,
 
@@ -349,6 +355,7 @@ extern "C" fn with_new_stack(package: *mut ToNewStack) -> ! {
         init_process,
         init_process_cmdline,
         address_space,
+        usable_framebuffers,
     } = unsafe { package.read() };
 
     // SAFETY:
@@ -375,6 +382,7 @@ extern "C" fn with_new_stack(package: *mut ToNewStack) -> ! {
             kernel_physical_base,
             address_space,
             processes,
+            framebuffers: Framebuffers::new(usable_framebuffers),
         },
         kernel_stack_top,
     );
@@ -428,6 +436,108 @@ extern "C" fn with_new_stack(package: *mut ToNewStack) -> ! {
     }
 }
 
+/// Parses the framebuffer information provided by the bootloader.
+fn parse_framebuffer(framebuffer: &limine::Framebuffer0, hhdm: usize) -> Option<Framebuffer> {
+    let format = match (
+        framebuffer.memory_model,
+        framebuffer.bpp,
+        framebuffer.red_mask_size,
+        framebuffer.red_mask_shift,
+        framebuffer.green_mask_size,
+        framebuffer.green_mask_shift,
+        framebuffer.blue_mask_size,
+        framebuffer.blue_mask_shift,
+    ) {
+        (FramebufferMemoryModel::RGB, 32, 8, 16, 8, 8, 8, 0) => FramebufferFormat::BGR32,
+        (FramebufferMemoryModel::RGB, 32, 8, 0, 8, 8, 8, 16) => FramebufferFormat::RGB32,
+        (FramebufferMemoryModel::RGB, 24, 8, 16, 8, 8, 8, 0) => FramebufferFormat::BGR24,
+        (FramebufferMemoryModel::RGB, 24, 8, 0, 8, 8, 8, 16) => FramebufferFormat::RGB24,
+        _ => {
+            log::warn!(
+                "\
+                Framebuffer not supported: the format of the framebuffer is\n\
+                not supported by the kernel.\n\
+                \n\
+                > Memory model: {:?}\n\
+                > Bits per pixel: {}\n\
+                > Red: {}..{}\n\
+                > Green: {}..{}\n\
+                > Blue: {}..{}\n\
+                ",
+                framebuffer.memory_model,
+                framebuffer.bpp,
+                framebuffer.red_mask_shift,
+                framebuffer.red_mask_shift + framebuffer.red_mask_size,
+                framebuffer.green_mask_shift,
+                framebuffer.green_mask_shift + framebuffer.green_mask_size,
+                framebuffer.blue_mask_shift,
+                framebuffer.blue_mask_shift + framebuffer.blue_mask_size,
+            );
+            return None;
+        }
+    };
+
+    if framebuffer.width > u32::MAX as u64 || framebuffer.height > u32::MAX as u64 {
+        log::warn!(
+            "\
+            Framebuffer not supported: the framebuffer is too large.\n\
+            \n\
+            > Width: {}\n\
+            > Height: {}\n\
+            ",
+            framebuffer.width,
+            framebuffer.height,
+        );
+        return None;
+    }
+
+    Some(Framebuffer {
+        bytes_per_lines: framebuffer.pitch as usize,
+        format,
+        address: (framebuffer.address as usize - hhdm + HHDM_OFFSET) as *mut u8,
+        width: framebuffer.width as u32,
+        height: framebuffer.height as u32,
+    })
+}
+
+/// Parses the framebuffers provided by the bootloader.
+fn parse_framebuffers(
+    framebuffer: &[&limine::Framebuffer0],
+    hhdm: usize,
+    out: &mut ArrayVec<Framebuffer, 4>,
+) {
+    log::trace!("Parsing the framebuffers provided by the bootloader...");
+
+    let mut dropped_framebuffers = false;
+
+    for framebuffer in framebuffer {
+        if let Some(framebuffer) = parse_framebuffer(framebuffer, hhdm) {
+            if out.try_push(framebuffer).is_err() {
+                dropped_framebuffers = true;
+                break;
+            }
+        }
+    }
+
+    if dropped_framebuffers {
+        log::warn!(
+            "\
+            The kernel is unable to handle more than {} framebuffers.\n\
+            The kernel will continue to boot, but it will not be able to use all\n\
+            of the available framebuffers.\n\
+            \n\
+            If this is a problem for you, please file an issue on the GitHub
+            repository!\n\
+            \n\
+            https://github.com/nils-mathieu/ruel/issues/new\
+            ",
+            out.capacity(),
+        );
+    }
+
+    log::trace!("Found {} supported framebuffers.", out.len());
+}
+
 /// Finds the largest usable memory segment in the memory map.
 ///
 /// # Panics
@@ -463,7 +573,7 @@ fn find_memory_upper_bound(memory_map: &[&MemmapEntry]) -> PhysAddr {
 /// stops the CPU.
 fn validate_and_find_usable_segments(
     memory_map: &[&MemmapEntry],
-    usable_memory: &mut UsableMemoryVec,
+    usable_memory: &mut ArrayVec<MemmapEntry, 8>,
 ) {
     let mut last_entry: Option<&MemmapEntry> = None;
     let mut too_many_segments = false;
@@ -572,7 +682,7 @@ fn validate_and_find_usable_segments(
 /// called, the bootstrap allocator should no longer be used. The ownership of the remaining
 /// pages is transferred to the global allocator.
 fn initialize_global_allocator(
-    usable_memory: &UsableMemoryVec,
+    usable_memory: &[MemmapEntry],
     mut bootstrap_allocator: BumpAllocator,
     hhdm: HhdmToken,
 ) -> MemoryAllocator {

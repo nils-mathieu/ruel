@@ -6,6 +6,9 @@ pub use self::allocator::*;
 mod processes;
 pub use self::processes::*;
 
+mod framebuffer;
+pub use self::framebuffer::*;
+
 use core::ops::Deref;
 
 use x86_64::{PhysAddr, VirtAddr};
@@ -24,6 +27,9 @@ pub struct Global {
 
     /// The list of running processes.
     pub processes: Processes,
+
+    /// The framebuffers available to the kernel.
+    pub framebuffers: Framebuffers,
 }
 
 /// The global state of the kernel.

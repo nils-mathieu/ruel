@@ -1,10 +1,16 @@
 use core::arch::asm;
 
-use crate::{PS2Buffer, ProcessConfig, ProcessId, SysResult, Sysno, Verbosity, WakeUp};
+use crate::{
+    Framebuffer, PS2Buffer, ProcessConfig, ProcessId, SysResult, Sysno, Verbosity, WakeUp,
+};
 
 /// Performs a system call with no arguments.
+///
+/// # Safety
+///
+/// Some system calls can compromise the memory safety of the program.
 #[inline]
-pub fn syscall0(no: usize) -> usize {
+pub unsafe fn syscall0(no: usize) -> usize {
     let ret;
 
     unsafe {
@@ -248,8 +254,12 @@ pub fn despawn_self() -> ! {
 /// # Returns
 ///
 /// Nothing.
+///
+/// # Safety
+///
+/// Some other part of the code my rely on the current configuration of the process.
 #[inline]
-pub fn set_process_config(process_id: ProcessId, flags: ProcessConfig) -> SysResult {
+pub unsafe fn set_process_config(process_id: ProcessId, flags: ProcessConfig) -> SysResult {
     unsafe {
         SysResult::from_raw(syscall2(
             Sysno::SetProcessConfig as usize,
@@ -338,6 +348,49 @@ pub fn sleep(wake_ups: *mut WakeUp, wake_up_len: usize) -> SysResult {
 #[inline]
 pub fn read_ps2(ret: *mut PS2Buffer) -> SysResult {
     unsafe { SysResult::from_raw(syscall1(Sysno::ReadPS2 as usize, ret as usize)) }
+}
+
+/// Acquires the framebuffers available on the system.
+///
+/// # Parameters
+///
+/// - `ret`: Either a null pointer, or a pointer to an array of [`Framebuffer`] instances.
+///
+/// - `count`: The maximum number of [`Framebuffer`] instances that can be written by the kernel
+///   at `ret` (if non-null), and upon return, the number of framebuffers available on the system.
+///
+/// # Errors
+///
+/// - `RESOURCE_BUSY` if the framebuffers are currently owned by another process.
+///
+/// - `OUT_OF_MEMORY` if the kernel is unable to allocate memory for bookkeeping.
+///
+/// # Returns
+///
+/// At most `count` framebuffers are written to `ret`. If `count` is zero, `ret` is not observed.
+///
+/// The number of framebuffers available is written to `count`.
+pub fn acquire_framebuffers(ret: *mut Framebuffer, count: *mut usize) -> SysResult {
+    unsafe {
+        SysResult::from_raw(syscall2(
+            Sysno::AcquireFramebuffers as usize,
+            ret as usize,
+            count as usize,
+        ))
+    }
+}
+
+/// Releases the buffers available on the system.
+///
+/// # Errors
+///
+/// - `MISSING_CAPABILITY` if the current process does not own the framebuffers.
+///
+/// # Returns
+///
+/// Nothing.
+pub fn release_framebuffers() -> SysResult {
+    unsafe { SysResult::from_raw(syscall0(Sysno::ReleaseFramebuffers as usize)) }
 }
 
 /// Sends a message using the kernel's logging system.

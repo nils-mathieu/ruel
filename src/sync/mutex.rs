@@ -3,6 +3,8 @@ use core::ops::{Deref, DerefMut};
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::Ordering::{Acquire, Relaxed, Release};
 
+use crate::utility::RestoreInterrupts;
+
 /// A mutual exclusion primitive based on spin-locks.
 pub struct Mutex<T: ?Sized> {
     /// Whether the mutex is currently locked or not.
@@ -28,7 +30,10 @@ impl<T> Mutex<T> {
 impl<T: ?Sized> Mutex<T> {
     /// Locks the mutex and returns a guard that releases the lock when dropped.
     #[inline]
+    #[track_caller]
     pub fn lock(&self) -> MutexGuard<T> {
+        let without_interrupts = RestoreInterrupts::without_interrupts();
+
         if self
             .locked
             .compare_exchange(false, true, Acquire, Relaxed)
@@ -36,18 +41,20 @@ impl<T: ?Sized> Mutex<T> {
         {
             // Fast path: no spinning required.
             MutexGuard {
+                without_interrupts,
                 locked: &self.locked,
                 value: unsafe { &mut *self.value.get() },
             }
         } else {
             // Slow path: spin until the lock is released.
-            self.lock_cold()
+            self.lock_cold(without_interrupts)
         }
     }
 
     /// The cold part fo the locking mechanism.
     #[cold]
-    fn lock_cold(&self) -> MutexGuard<T> {
+    #[track_caller]
+    fn lock_cold(&self, without_interrupts: Option<RestoreInterrupts>) -> MutexGuard<T> {
         while self
             .locked
             .compare_exchange_weak(false, true, Acquire, Relaxed)
@@ -57,6 +64,7 @@ impl<T: ?Sized> Mutex<T> {
         }
 
         MutexGuard {
+            without_interrupts,
             locked: &self.locked,
             value: unsafe { &mut *self.value.get() },
         }
@@ -69,22 +77,20 @@ pub struct MutexGuard<'a, T: ?Sized> {
     locked: &'a AtomicBool,
     /// The protected value.
     value: &'a mut T,
+    /// The interrupts state before the lock was acquired.
+    without_interrupts: Option<RestoreInterrupts>,
 }
 
 impl<'a, T> MutexGuard<'a, T> {
-    /// Leaks the protected value, leaving the mutex forever locked.
-    #[inline]
-    pub fn leak(self) -> &'a mut T {
-        let value = unsafe { core::ptr::read(&self.value) };
-        core::mem::forget(self);
-        value
-    }
-
     /// Maps the inner value to a new value.
     pub fn map<U>(self, f: impl FnOnce(&mut T) -> &mut U) -> MutexGuard<'a, U> {
+        let without_interrupts = unsafe { core::ptr::read(&self.without_interrupts) };
+        let value = unsafe { core::ptr::read(&self.value) };
+
         MutexGuard {
             locked: self.locked,
-            value: f(self.leak()),
+            without_interrupts,
+            value: f(value),
         }
     }
 
@@ -93,9 +99,13 @@ impl<'a, T> MutexGuard<'a, T> {
         self,
         f: impl FnOnce(&mut T) -> Result<&mut U, E>,
     ) -> Result<MutexGuard<'a, U>, E> {
+        let without_interrupts = unsafe { core::ptr::read(&self.without_interrupts) };
+        let value = unsafe { core::ptr::read(&self.value) };
+
         Ok(MutexGuard {
             locked: self.locked,
-            value: f(self.leak())?,
+            without_interrupts,
+            value: f(value)?,
         })
     }
 }

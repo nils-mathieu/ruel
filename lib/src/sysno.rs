@@ -11,6 +11,10 @@ pub enum Sysno {
     Sleep,
     /// See [`read_ps2`](crate::read_ps2).
     ReadPS2,
+    /// See [`acquire_framebuffers`](crate::acquire_framebuffers).
+    AcquireFramebuffers,
+    /// See [`release_framebuffers`](crate::release_framebuffers).
+    ReleaseFramebuffers,
     /// See [`kernel_log`](crate::kernel_log).
     KernelLog,
 }

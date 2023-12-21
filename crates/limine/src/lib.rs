@@ -56,6 +56,8 @@ impl Id {
     pub const KERNEL_ADDRESS: Self = Self::common(0x71ba76863cc55f63, 0xb2644a48c516a487);
     /// The ID to use with the [`ModuleRequest`].
     pub const MODULE: Self = Self::common(0x3e7e279702be32af, 0xca1c4f3bd1280cee);
+    /// The ID to use with the [`FramebufferRequest`].
+    pub const FRAMEBUFFER: Self = Self::common(0x9d5827dcd881dd75, 0xa3148604f6fab11b);
 
     /// Create a common ID from the provided last two components.
     ///
@@ -438,4 +440,176 @@ loose_enum! {
         const OPTICAL = 1;
         const TFTP = 2;
     }
+}
+
+/// Requests the bootloader to provide a list of available framebuffers.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct FramebufferRequest {
+    /// Must be [`Id::FRAMEBUFFER`].
+    pub id: Id,
+    /// The revision number of the request.
+    ///
+    /// Currently, only revision 0 exists.
+    pub revision: Revision,
+    /// The response pointer of the request.
+    ///
+    /// More information in the documentation for [`ResponsePtr`].
+    pub response: ResponsePtr<FramebufferResponse>,
+}
+
+/// The response to the [`FramebufferRequest`].
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct FramebufferResponse {
+    /// The revision number of the response.
+    ///
+    /// # Revision 0
+    ///
+    /// When revision zero is being used, the `framebuffers` pointer is a list of [`Framebuffer0`]
+    /// instead of [`Framebuffer`]s.
+    ///
+    /// # Revision 1
+    ///
+    /// Revision 1 is the last revision of the response type.
+    pub revision: Revision,
+
+    /// The number of entries pointed by the `framebuffers` pointer.
+    pub framebuffer_count: u64,
+    /// The framebuffers that are available.
+    pub framebuffers: LiminePtr<LiminePtr<Framebuffer>>,
+}
+
+/// A framebuffer that is available on the system.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct Framebuffer0 {
+    /// The virtual address of the framebuffer.
+    ///
+    /// This pointer is already offset by the HHDM installed by the bootloader.
+    pub address: *const u8,
+    /// The width of the framebuffer, in pixels.
+    pub width: u64,
+    /// The height of the framebuffer, in pixels.
+    pub height: u64,
+    /// The number of bytes per line of the framebuffer.
+    ///
+    /// In order to get the byte offset of a specific line, this value should be used instead
+    /// of a simple multiplication by the width.
+    pub pitch: u64,
+    /// The number of bits per pixel of the framebuffer.
+    pub bpp: u16,
+    /// The memory model describing how the memory is laid out in memory.
+    pub memory_model: FramebufferMemoryModel,
+    /// The number of bits taken by the red channel in each pixel.
+    pub red_mask_size: u8,
+    /// The number of bits to shift the red channel in each pixel.
+    pub red_mask_shift: u8,
+    /// The number of bits taken by the green channel in each pixel.
+    pub green_mask_size: u8,
+    /// The number of bits to shift the green channel in each pixel.
+    pub green_mask_shift: u8,
+    /// The number of bits taken by the blue channel in each pixel.
+    pub blue_mask_size: u8,
+    /// The number of bits to shift the blue channel in each pixel.
+    pub blue_mask_shift: u8,
+
+    pub _unused: [u8; 7],
+
+    /// The number of bytes referenced by the `edid` pointer.
+    pub edid_size: u64,
+    /// The EDID data of the framebuffer, if available.
+    pub edid: LiminePtr<u8>,
+}
+
+/// A framebuffer that is available on the system.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct Framebuffer {
+    /// The virtual address of the framebuffer.
+    ///
+    /// This pointer is already offset by the HHDM installed by the bootloader.
+    pub address: *const u8,
+    /// The width of the framebuffer, in pixels.
+    pub width: u64,
+    /// The height of the framebuffer, in pixels.
+    pub height: u64,
+    /// The number of bytes per line of the framebuffer.
+    ///
+    /// In order to get the byte offset of a specific line, this value should be used instead
+    /// of a simple multiplication by the width.
+    pub pitch: u64,
+    /// The number of bits per pixel of the framebuffer.
+    pub bpp: u16,
+    /// The memory model describing how the memory is laid out in memory.
+    pub memory_model: FramebufferMemoryModel,
+    /// The number of bits taken by the red channel in each pixel.
+    pub red_mask_size: u8,
+    /// The number of bits to shift the red channel in each pixel.
+    pub red_mask_shift: u8,
+    /// The number of bits taken by the green channel in each pixel.
+    pub green_mask_size: u8,
+    /// The number of bits to shift the green channel in each pixel.
+    pub green_mask_shift: u8,
+    /// The number of bits taken by the blue channel in each pixel.
+    pub blue_mask_size: u8,
+    /// The number of bits to shift the blue channel in each pixel.
+    pub blue_mask_shift: u8,
+
+    pub _unused: [u8; 7],
+
+    /// The number of bytes referenced by the `edid` pointer.
+    pub edid_size: u64,
+    /// The EDID data of the framebuffer, if available.
+    pub edid: LiminePtr<u8>,
+
+    //
+    // Revision 1
+    //
+    /// The number of bytes referenced by the `edid` pointer.
+    pub mode_count: u64,
+    /// The EDID data of the framebuffer, if available.
+    pub modes: LiminePtr<LiminePtr<VideoMode>>,
+}
+
+unsafe impl Send for Framebuffer {}
+unsafe impl Sync for Framebuffer {}
+
+loose_enum! {
+    /// The memory model of a [`Framebuffer`].
+    pub struct FramebufferMemoryModel: u8 {
+        /// Each pixel of the framebuffer is constituted of three channels: red, green, and blue.
+        const RGB = 1;
+    }
+}
+
+/// Describes how to handle a request.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct VideoMode {
+    /// The number of bytes per line of the framebuffer.
+    ///
+    /// In order to get the byte offset of a specific line, this value should be used instead
+    /// of a simple multiplication by the width.
+    pub pitch: u64,
+    /// The width of the framebuffer, in pixels.
+    pub width: u64,
+    /// The height of the framebuffer, in pixels.
+    pub height: u64,
+    /// The number of bits per pixel of the framebuffer.
+    pub bpp: u16,
+    /// The memory model describing how the memory is laid out in memory.
+    pub memory_model: FramebufferMemoryModel,
+    /// The number of bits taken by the red channel in each pixel.
+    pub red_mask_size: u8,
+    /// The number of bits to shift the red channel in each pixel.
+    pub red_mask_shift: u8,
+    /// The number of bits taken by the green channel in each pixel.
+    pub green_mask_size: u8,
+    /// The number of bits to shift the green channel in each pixel.
+    pub green_mask_shift: u8,
+    /// The number of bits taken by the blue channel in each pixel.
+    pub blue_mask_size: u8,
+    /// The number of bits to shift the blue channel in each pixel.
+    pub blue_mask_shift: u8,
 }

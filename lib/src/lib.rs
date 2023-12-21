@@ -169,3 +169,70 @@ impl Verbosity {
         }
     }
 }
+
+/// Information about an available framebuffer.
+#[derive(Clone, Copy, Debug)]
+#[repr(C)]
+pub struct Framebuffer {
+    /// The virtual address of the framebuffer.
+    pub address: *mut u8,
+    /// The pitch of the framebuffer.
+    ///
+    /// This is the number of bytes between the start of one row of pixels and the start of the
+    /// next row of pixels.
+    pub bytes_per_lines: usize,
+    /// The width of the framebuffer.
+    pub width: u32,
+    /// The height of the framebuffer.
+    pub height: u32,
+    /// The format of the framebuffer.
+    pub format: FramebufferFormat,
+}
+
+unsafe impl Send for Framebuffer {}
+unsafe impl Sync for Framebuffer {}
+
+impl Framebuffer {
+    /// Returns the size of the framebuffer, in bytes.
+    #[inline]
+    pub fn size(&self) -> usize {
+        self.bytes_per_lines * self.height as usize
+    }
+}
+
+loose_enum! {
+    /// The video mode of a [`Framebuffer`].
+    pub struct FramebufferFormat: u32 {
+        /// Each pixel of the framebuffer is represented by three bytes; one for each color channel
+        /// in the order red, green, and then blue.
+        const RGB24 = 0;
+        /// Each pixel of the framebuffer is represented by four bytes; one for each color channel
+        /// in the order red, green, blue.
+        ///
+        /// The most significant byte is unused.
+        const RGB32 = 1;
+        /// Each pixel of the framebuffer is represented by three bytes; one for each color channel
+        /// in the order blue, green, and then red.
+        const BGR24 = 2;
+        /// Each pixel of the framebuffer is represented by four bytes; one for each color channel
+        /// in the order blue, green, red.
+        ///
+        /// The first significant byte is unused.
+        const BGR32 = 3;
+    }
+}
+
+impl FramebufferFormat {
+    /// Retrurns the number of bytes per pixel of the framebuffer.
+    ///
+    /// # Remarks
+    ///
+    /// If the format is not known, this function returns 0.
+    pub const fn bytes_per_pixel(self) -> u32 {
+        match self {
+            Self::RGB24 | Self::BGR24 => 3,
+            Self::RGB32 | Self::BGR32 => 4,
+            _ => 0,
+        }
+    }
+}

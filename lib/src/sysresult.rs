@@ -79,4 +79,16 @@ define_error_codes! {
     /// (i.e. it does not exist or it has exited).
     "process not found"
     const PROCESS_NOT_FOUND = 2;
+
+    /// The process attempted to acquire a resource that's exclusive to another process.
+    "resource busy"
+    const RESOURCE_BUSY = 3;
+
+    /// The process is missing a capability that's required to perform the operation.
+    "missing capability"
+    const MISSING_CAPABILITY = 4;
+
+    /// The operation failed because the kernel ran out of memory.
+    "out of memory"
+    const OUT_OF_MEMORY = 5;
 }
