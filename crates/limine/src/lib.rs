@@ -84,7 +84,7 @@ pub type Revision = u64;
 /// Requests the bootloader to provide some information about itself. That includes its name
 /// and version.
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct BootloaderInfoRequest {
     /// Must be [`Id::BOOTLOADER_INFO`].
     pub id: Id,
@@ -122,7 +122,7 @@ pub type EntryPoint = unsafe extern "C" fn() -> !;
 /// This is useful for kernels that support multiple boot protocols and want to use distinct
 /// entry points for each of them.
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct EntryPointRequest {
     /// Must be [`Id::ENTRY_POINT`].
     pub id: Id,
@@ -155,7 +155,7 @@ pub struct EntryPointResponse {
 
 /// Requests the bootloader to provide a map of the physical memory available on the system.
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct MemmapRequest {
     /// Must be [`Id::MEMMAP`].
     pub id: Id,
@@ -235,7 +235,7 @@ loose_enum! {
 /// Requests the bootloader to provide the address of the HHDM (Higher-Half Direct Map) that it
 /// has created for the kernel.
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct HhdmRequest {
     /// Must be [`Id::HHDM`].
     pub id: Id,
@@ -251,7 +251,7 @@ pub struct HhdmRequest {
 
 /// The response to the [`HhdmRequest`].
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct HhdmResponse {
     /// The revision number of the response.
     ///
@@ -267,7 +267,7 @@ pub struct HhdmResponse {
 
 /// Requests the kernel to provide the address of the kernel's physical and virtual base.
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct KernelAddressRequest {
     /// Must be [`Id::KERNEL_ADDRESS`].
     pub id: Id,
@@ -325,7 +325,7 @@ bitflags! {
 /// the user requested them, or because the kernel requested them through the internal
 /// module mechanism.
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ModuleRequest {
     /// Must be [`Id::MODULE`].
     pub id: Id,
@@ -444,7 +444,7 @@ loose_enum! {
 
 /// Requests the bootloader to provide a list of available framebuffers.
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct FramebufferRequest {
     /// Must be [`Id::FRAMEBUFFER`].
     pub id: Id,
@@ -521,6 +521,9 @@ pub struct Framebuffer0 {
     /// The EDID data of the framebuffer, if available.
     pub edid: LiminePtr<u8>,
 }
+
+unsafe impl Send for Framebuffer0 {}
+unsafe impl Sync for Framebuffer0 {}
 
 /// A framebuffer that is available on the system.
 #[repr(C)]

@@ -1,3 +1,4 @@
+use core::cell::UnsafeCell;
 use core::ffi::{c_char, CStr};
 
 /// A pointer into the bootloader-reclaimable memory of the kernel.
@@ -92,29 +93,34 @@ unsafe impl<T: ?Sized + Sync> Sync for LiminePtr<T> {}
 /// that the compiler has no idea that the value will change and will assume (as it should) that
 /// the value never actually changes.
 #[derive(Debug)]
-pub struct ResponsePtr<T: ?Sized>(LiminePtr<T>);
+pub struct ResponsePtr<T: ?Sized>(UnsafeCell<LiminePtr<T>>);
 
 impl<T> ResponsePtr<T> {
     /// A null [`ResponsePtr<T>`].
     #[allow(clippy::declare_interior_mutable_const)]
-    pub const NULL: Self = Self(LiminePtr::NULL);
+    pub const NULL: Self = Self(UnsafeCell::new(LiminePtr::NULL));
 }
 
 impl<T: ?Sized> ResponsePtr<T> {
     /// Returns the (eventually null) raw pointer.
     #[inline]
-    pub fn read_raw(self) -> LiminePtr<T> {
+    pub fn read_raw(&self) -> LiminePtr<T> {
         // We need to use volatile semantics because the compiler may optimize away the reads of
         // the pointer.
         //
         // This is beacuse from the point of view of the compiler, the pointer is never written to
-        // (and thus always null). We ened to make sure
+        // (and thus always null).
+        //
+        // Note that in practice, using a function like `read_volatile` would not work in this case
+        // because the function takes `self` by value, meaning that the compiler has already
+        // technically copied the "null" pointer here. Even if we read-volatile it, it's already
+        // null.
+        //
+        // Instead, we use an `UnsafeCell`, because that type specifically prevents Rust from
+        // optimizing away reads of the inner value (because that value could have been written
+        // by another thread).
 
-        unsafe {
-            // SAFETY:
-            //  We're reading a regular Rust reference, ensuring that this is safe.
-            core::ptr::read_volatile(&self.0)
-        }
+        unsafe { *self.0.get() }
     }
 
     /// Returns a reference to the pointed value, if the pointer is not null.
@@ -129,7 +135,7 @@ impl<T: ?Sized> ResponsePtr<T> {
     /// is actually compliant with the standard), then this function is safe to call as long
     /// as the bootloader-reclaimable memory region is not overwritten.
     #[inline]
-    pub unsafe fn read<'a>(self) -> Option<&'a T> {
+    pub unsafe fn read<'a>(&self) -> Option<&'a T> {
         let p = self.read_raw();
 
         if p.is_null() {
@@ -143,8 +149,9 @@ impl<T: ?Sized> ResponsePtr<T> {
 impl<T: ?Sized> Clone for ResponsePtr<T> {
     #[inline]
     fn clone(&self) -> Self {
-        *self
+        Self(UnsafeCell::new(self.read_raw()))
     }
 }
 
-impl<T: ?Sized> Copy for ResponsePtr<T> {}
+unsafe impl<T: ?Sized + Sync> Send for ResponsePtr<T> {}
+unsafe impl<T: ?Sized + Sync> Sync for ResponsePtr<T> {}

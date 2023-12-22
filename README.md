@@ -69,4 +69,57 @@ directory of Cargo). That is the kernel image.
 
 ## Running
 
-The project is not yet ready to run anything. Come back later! :P
+Currently, the project depends on the [Limine bootloader] to start. This is the only way
+to boot the kernel for now. I might add support for other bootloaders later on, such as
+grub through multiboot2.
+
+The easiest way to run the kernel is to use an emulator such as [QEMU]. You can use the
+following commands to run the kernel:
+
+[Limine bootloader]: https://github.com/limine-bootloader/limine
+[QEMU]: https://www.qemu.org/
+
+```sh
+# Clone the Limine repository
+git clone https://github.com/limine-bootloader/limine.git?
+
+# Build the kernel
+cargo build --release --target x86_64.json --package ruel
+
+# Create a directory for the ISO image
+mkdir iso_root
+
+# Copy the kernel image to the ISO image directory
+cp target/x86_64/release/ruel iso_root/ruel
+
+# Create a configuration file for Limine
+cat << EOF > iso_root/limine.cfg
+:Ruel
+    PROTOCOL=limine
+    KERNEL_PATH=boot:///ruel
+    MODULE_PATH=boot:///
+EOF
+
+
+# Create an ISO image with the kernel and the Limine bootloader
+xorriso -as mkisofs -b limine/limine-bios-cd.bin \
+        -no-emul-boot -boot-load-size 4 -boot-info-table \
+        --efi-boot limine/limine-uefi-cd.bin \
+        -efi-boot-part --efi-boot-image --protective-msdos-label \
+        iso_root -o image.iso
+
+# Installs the Limine bootloader on the ISO image
+./limine/limine bios-install image.iso
+
+# Run the ISO image in QEMU
+qemu-system-x86_64 -M q35 -m 2G -cdrom image.iso -boot d \
+    -serial stdio -no-reboot
+```
+
+## Configuration
+
+Upon boot, the kernel will run the an init process with all capabilities. This process will be
+responsible for starting the user's environment. For more information about to write an
+init process, see [`docs/init.md`].
+
+[`docs/init.md`]: docs/init.md
