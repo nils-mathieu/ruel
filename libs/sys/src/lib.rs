@@ -113,7 +113,7 @@ impl PS2Buffer {
 
 bitflags! {
     /// Some flags used to configure a running process instance.
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     #[repr(transparent)]
     pub struct ProcessConfig: usize {
         /// Whether the process wants to block on potentially blocking system calls.

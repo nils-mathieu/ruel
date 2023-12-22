@@ -254,12 +254,8 @@ pub fn despawn_self() -> ! {
 /// # Returns
 ///
 /// Nothing.
-///
-/// # Safety
-///
-/// Some other part of the code my rely on the current configuration of the process.
 #[inline]
-pub unsafe fn set_process_config(process_id: ProcessId, flags: ProcessConfig) -> SysResult {
+pub fn set_process_config(process_id: ProcessId, flags: ProcessConfig) -> SysResult {
     unsafe {
         SysResult::from_raw(syscall2(
             Sysno::SetProcessConfig as usize,

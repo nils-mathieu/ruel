@@ -40,6 +40,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ruel-std"
+version = "0.0.1"
+dependencies = [
+ "bitflags",
+ "ruel-sys",
+]
+
+[[package]]
 name = "ruel-sys"
 version = "0.1.0"
 dependencies = [

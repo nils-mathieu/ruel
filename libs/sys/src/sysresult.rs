@@ -54,9 +54,20 @@ macro_rules! define_error_codes {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
                 match *self {
                     $(
-                        Self::$code => f.write_str($desc),
+                        Self::$code => f.write_str(stringify!($code)),
                     )*
                     _ => f.debug_tuple("SysResult").field(&self.0).finish(),
+                }
+            }
+        }
+
+        impl core::fmt::Display for SysResult {
+            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+                match *self {
+                    $(
+                        Self::$code => f.pad($desc),
+                    )*
+                    _ => f.pad("unknown error"),
                 }
             }
         }
