@@ -116,7 +116,7 @@ pub enum Irq {
     /// IRQ 11.
     Eleven,
     /// IRQ 12.
-    Twelve,
+    PS2Mouse,
     /// IRQ 13.
     Thirteen,
     /// IRQ 14.
@@ -132,7 +132,7 @@ bitflags! {
         /// IRQ 0.
         const TIMER = 1 << 0;
         /// IRQ 1.
-        const KEYBOARD = 1 << 1;
+        const PS2_KEYBOARD = 1 << 1;
         /// IRQ 2.
         const TWO = 1 << 2;
         /// IRQ 3.
@@ -154,7 +154,7 @@ bitflags! {
         /// IRQ 11.
         const ELEVEN = 1 << 11;
         /// IRQ 12.
-        const TWELVE = 1 << 12;
+        const PS2_MOUSE = 1 << 12;
         /// IRQ 13.
         const THIRTEEN = 1 << 13;
         /// IRQ 14.

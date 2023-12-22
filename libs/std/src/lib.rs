@@ -11,8 +11,8 @@ pub type Result<T> = core::result::Result<T, SysResult>;
 pub mod framebuffer;
 #[cfg(feature = "process")]
 pub mod process;
-#[cfg(feature = "ps2")]
-pub mod ps2;
+#[cfg(feature = "sleep")]
+pub mod sleep;
 
 pub extern crate sys;
 

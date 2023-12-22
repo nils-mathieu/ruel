@@ -55,10 +55,13 @@ pub fn init(bootstrap_allocator: &mut BumpAllocator) -> Result<(), OutOfMemory> 
 
     idt[PIC_OFFSET + Irq::Timer as u8] = int_gate(handlers::pic_timer as usize);
     idt[PIC_OFFSET + Irq::PS2Keyboard as u8] = int_gate(handlers::pic_ps2_keyboard as usize);
+    idt[PIC_OFFSET + Irq::PS2Mouse as u8] = int_gate(handlers::pic_ps2_mouse as usize);
+
+    crate::io::ps2::init_aux();
 
     pic::init();
     pit::init();
-    pic::set_irq_mask(Irqs::all().difference(Irqs::KEYBOARD | Irqs::TIMER));
+    pic::set_irq_mask(Irqs::all().difference(Irqs::PS2_KEYBOARD | Irqs::TIMER | Irqs::PS2_MOUSE));
 
     log::trace!("Loading the IDT...");
 

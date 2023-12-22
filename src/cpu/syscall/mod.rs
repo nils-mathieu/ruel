@@ -12,7 +12,7 @@ mod handlers;
 type SystemCallFn = unsafe extern "C" fn(usize, usize, usize, usize, usize, usize) -> SysResult;
 
 /// The total number of system calls.
-const SYSTEM_CALL_COUNT: usize = 8;
+const SYSTEM_CALL_COUNT: usize = 5;
 
 /// A lookup table of system call handlers.
 ///
@@ -21,10 +21,7 @@ const SYSTEM_CALL_COUNT: usize = 8;
 /// [`SysResult::INVALID_VALUE`] error.
 static SYSTEM_CALLS: [SystemCallFn; SYSTEM_CALL_COUNT] = [
     handlers::despawn_process,
-    handlers::set_process_config,
-    handlers::get_process_config,
     handlers::sleep,
-    handlers::read_ps2,
     handlers::acquire_framebuffers,
     handlers::release_framebuffers,
     handlers::kernel_log,

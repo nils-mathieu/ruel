@@ -4,7 +4,7 @@ use core::fmt::Write;
 use core::mem::MaybeUninit;
 use core::ptr::NonNull;
 
-use ruel_sys::{Framebuffer, PS2Buffer, ProcessConfig, SysResult, Verbosity, WakeUp, WakeUpTag};
+use ruel_sys::{Framebuffer, SysResult, Verbosity, WakeUp};
 use x86_64::{hlt, PageTableEntry, PhysAddr, VirtAddr};
 
 use crate::cpu::paging::{MappingError, HHDM_OFFSET};
@@ -38,44 +38,6 @@ pub unsafe extern "C" fn despawn_process(
     todo!("despawn_process({})", process_id);
 }
 
-/// See [`ruel_sys::get_process_config`].
-pub unsafe extern "C" fn set_process_config(
-    process_id: usize,
-    config: usize,
-    _: usize,
-    _: usize,
-    _: usize,
-    _: usize,
-) -> SysResult {
-    let glob = GlobalToken::get();
-
-    let config = try_or!(ProcessConfig::from_bits(config), SysResult::INVALID_VALUE);
-    let mut process = try_or!(glob.processes.get(process_id), SysResult::PROCESS_NOT_FOUND);
-
-    process.config = config;
-
-    SysResult::SUCCESS
-}
-
-/// See [`ruel_sys::get_process_config`].
-pub unsafe extern "C" fn get_process_config(
-    process_id: usize,
-    ret: usize,
-    _: usize,
-    _: usize,
-    _: usize,
-    _: usize,
-) -> SysResult {
-    let glob = GlobalToken::get();
-
-    let ret = unsafe { &mut *(ret as *mut MaybeUninit<ProcessConfig>) };
-    let process = try_or!(glob.processes.get(process_id), SysResult::PROCESS_NOT_FOUND);
-
-    ret.write(process.config);
-
-    SysResult::SUCCESS
-}
-
 /// See [`ruel_sys::sleep`].
 pub unsafe extern "C" fn sleep(
     wake_ups: usize,
@@ -105,7 +67,7 @@ pub unsafe extern "C" fn sleep(
 
         // Update the state of the process.
         assert!(current_process.sleeping.is_none());
-        current_process.sleeping = Some(SleepingState::InProcess(wake_ups));
+        current_process.sleeping = Some(SleepingState { wake_ups });
     }
 
     // TODO: Switch to another process.
@@ -114,46 +76,6 @@ pub unsafe extern "C" fn sleep(
     while glob.processes.current().sleeping.is_some() {
         hlt();
     }
-
-    SysResult::SUCCESS
-}
-
-/// See [`ruel_sys::read_ps2`].
-pub unsafe extern "C" fn read_ps2(
-    ret: usize,
-    _: usize,
-    _: usize,
-    _: usize,
-    _: usize,
-    _: usize,
-) -> SysResult {
-    let glob = GlobalToken::get();
-
-    let ret = unsafe { &mut *(ret as *mut MaybeUninit<PS2Buffer>) };
-    let ret = ret.write(PS2Buffer::EMPTY);
-
-    let mut process = glob.processes.current();
-
-    if !process.config.intersects(ProcessConfig::DONT_BLOCK) {
-        process.sleeping = Some(SleepingState::InKernel(WakeUp {
-            tag: WakeUpTag::PS2_KEYBOARD,
-        }));
-
-        drop(process);
-
-        while glob.processes.current().sleeping.is_some() {
-            hlt();
-        }
-
-        process = glob.processes.current();
-    }
-
-    ret.length = process.io_states.ps2_keyboard.total_len();
-    process
-        .io_states
-        .ps2_keyboard
-        .copy_to_slice(&mut ret.buffer);
-    process.io_states.ps2_keyboard.clear();
 
     SysResult::SUCCESS
 }

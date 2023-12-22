@@ -5,10 +5,10 @@ authors = ["Nils Mathieu <contact@nils-mathieu.fr>"]
 edition = "2021"
 
 [features]
-default = ["framebuffer", "ps2", "process"]
+default = ["framebuffer", "sleep", "process"]
 
 framebuffer = []
-ps2 = []
+sleep = []
 process = []
 
 [dependencies]

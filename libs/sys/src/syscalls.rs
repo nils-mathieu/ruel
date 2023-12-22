@@ -1,8 +1,6 @@
 use core::arch::asm;
 
-use crate::{
-    Framebuffer, PS2Buffer, ProcessConfig, ProcessId, SysResult, Sysno, Verbosity, WakeUp,
-};
+use crate::{Framebuffer, ProcessId, SysResult, Sysno, Verbosity, WakeUp};
 
 /// Performs a system call with no arguments.
 ///
@@ -238,59 +236,6 @@ pub fn despawn_self() -> ! {
     }
 }
 
-/// Sets the configuration of the specified process.
-///
-/// # Parameters
-///
-/// - `process_id`: The ID of the process to configure. The special value `ProcessId::MAX` is used
-///   to refer to the current process.
-///
-/// # Returns
-///
-/// - `PROCESS_NOT_FOUND` if the `process_id` does not refer to an existing process.
-///
-/// - `INVALID_VALUE` if any of the flags are invalid.
-///
-/// # Returns
-///
-/// Nothing.
-#[inline]
-pub fn set_process_config(process_id: ProcessId, flags: ProcessConfig) -> SysResult {
-    unsafe {
-        SysResult::from_raw(syscall2(
-            Sysno::SetProcessConfig as usize,
-            process_id,
-            flags.bits(),
-        ))
-    }
-}
-
-/// Gets the configuration of the specified process.
-///
-/// # Parameters
-///
-/// - `process_id`: The ID of the process to configure. The special value `ProcessId::MAX` is used
-///   to refer to the current process.
-///
-/// # Errors
-///
-/// - `PROCESS_NOT_FOUND` if the `process_id` does not refer to an existing process.
-///
-/// # Returns
-///
-/// - `ret`: A pointer to a [`ProcessConfig`] instance that will be filled with the configuration
-///   of the process.
-#[inline]
-pub fn get_process_config(process_id: ProcessId, ret: *mut ProcessConfig) -> SysResult {
-    unsafe {
-        SysResult::from_raw(syscall2(
-            Sysno::GetProcessConfig as usize,
-            process_id,
-            ret as usize,
-        ))
-    }
-}
-
 /// Puts the current process to sleep until it is woken up when any of the specified wake-up events
 /// occur.
 ///
@@ -301,23 +246,9 @@ pub fn get_process_config(process_id: ProcessId, ret: *mut ProcessConfig) -> Sys
 ///
 /// - `wake_up_len`: The number of items in the `wake_ups` array.
 ///
-/// # Remarks
-///
-/// This function is unaffected by the [`DONT_BLOCK`] process configuration flag. Whathever the
-/// value, the process will always be put to sleep.
-///
 /// # Errors
 ///
 /// - `INVALID_VALUE` if any of the wake-up events are invalid.
-///
-/// # Returns
-///
-/// `index` is set to the index of the wake-up event that woke the process up.
-///
-/// When mutiple wake-up events occur at the same time, the index of the first one in the list
-/// is returned.
-///
-/// [`DONT_BLOCK`]: ProcessConfig::DONT_BLOCK
 #[inline]
 pub fn sleep(wake_ups: *mut WakeUp, wake_up_len: usize) -> SysResult {
     unsafe {
@@ -327,23 +258,6 @@ pub fn sleep(wake_ups: *mut WakeUp, wake_up_len: usize) -> SysResult {
             wake_up_len,
         ))
     }
-}
-
-/// Reads the bytes received by the program on the first PS/2 port.
-///
-/// # Blocking Behavior
-///
-/// If the [`DONT_BLOCK`] process configuration flag is set, this system call will does not block
-/// and returns instantly with an empty buffer if no bytes are available. Otherwise, the function
-/// blocks until at least one byte of data is available.
-///
-/// # Returns
-///
-/// - `ret`: A pointer to a [`PS2Buffer`] instance that will be filled with the bytes received by
-///   the program.
-#[inline]
-pub fn read_ps2(ret: *mut PS2Buffer) -> SysResult {
-    unsafe { SysResult::from_raw(syscall1(Sysno::ReadPS2 as usize, ret as usize)) }
 }
 
 /// Acquires the framebuffers available on the system.

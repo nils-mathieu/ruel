@@ -21,7 +21,7 @@ impl<'a> core::fmt::Display for WithAnsiColors<'a> {
             Verbosity::Error => ("  \x1B[1;31merror\x1B[0m  \x1B[31m", "\x1B[0m"),
             Verbosity::Warn => ("   \x1B[1;33mwarn\x1B[0m  \x1B[33m", "\x1B[0m"),
             Verbosity::Info => ("   \x1B[1;34minfo\x1B[0m  \x1B[0m", ""),
-            Verbosity::Trace => ("  \x1B[1;30mtrace  ", "\x1b[0m"),
+            Verbosity::Trace => ("  \x1B[1;30mtrace\x1B[0m  \x1B[90m", "\x1b[0m"),
         };
 
         f.write_str(prefix)?;

@@ -1,5 +1,6 @@
 //! Implementations of the ISRs for the IST of the kernel.
 
+use ruel_sys::WakeUpPS2MouseFlags;
 use x86_64::{read_cr2, InterruptStackFrame, PageFaultError};
 
 use crate::cpu::idt::pic::Irq;
@@ -169,11 +170,75 @@ pub extern "x86-interrupt" fn pic_timer(_frame: InterruptStackFrame) {
 pub extern "x86-interrupt" fn pic_ps2_keyboard(_frame: InterruptStackFrame) {
     let glob = GlobalToken::get();
 
-    debug_assert!(ps2::status().intersects(PS2Status::OUTPUT));
+    #[cfg(debug_assertions)]
+    {
+        let status = ps2::status();
+        assert!(status.intersects(PS2Status::OUTPUT));
+        assert!(!status.intersects(PS2Status::SECOND_PS2));
+    }
+
     let scancode = ps2::read_data();
 
     glob.processes
         .for_each_mut(move |proc| proc.io_states.ps2_keyboard.push(scancode));
 
     super::pic::end_of_interrupt(Irq::PS2Keyboard);
+}
+
+pub extern "x86-interrupt" fn pic_ps2_mouse(_frame: InterruptStackFrame) {
+    let glob = GlobalToken::get();
+
+    crate::log::trace!("mouse");
+
+    debug_assert!(ps2::status().contains(PS2Status::OUTPUT | PS2Status::SECOND_PS2));
+
+    let flags = ps2::read_data();
+    let x_movement = ps2::read_data();
+    let y_movement = ps2::read_data();
+
+    // Check the overflow bits and discard the event if they are set.
+    if flags & 0b1100_0000 != 0 {
+        super::pic::end_of_interrupt(Irq::PS2Mouse);
+        return;
+    }
+
+    let mut dx = u8_to_i8(x_movement);
+    let mut dy = u8_to_i8(y_movement);
+
+    if flags & 0b0001_0000 != 0 {
+        dx = -dx;
+    }
+    if flags & 0b0010_0000 != 0 {
+        dy = -dy;
+    }
+
+    let mut mouse_flags = WakeUpPS2MouseFlags::CHANGED;
+    if flags & 0b0000_0001 != 0 {
+        mouse_flags.insert(WakeUpPS2MouseFlags::LEFT_BUTTON);
+    }
+    if flags & 0b0000_0010 != 0 {
+        mouse_flags.insert(WakeUpPS2MouseFlags::RIGHT_BUTTON);
+    }
+    if flags & 0b0000_0100 != 0 {
+        mouse_flags.insert(WakeUpPS2MouseFlags::MIDDLE_BUTTON);
+    }
+
+    glob.processes.for_each_mut(move |proc| {
+        proc.io_states.ps2_mouse_state = mouse_flags;
+        proc.io_states.ps2_mouse_offset = [
+            proc.io_states.ps2_mouse_offset[0].saturating_add(dx),
+            proc.io_states.ps2_mouse_offset[1].saturating_add(dy),
+        ];
+    });
+
+    super::pic::end_of_interrupt(Irq::PS2Mouse);
+}
+
+#[inline]
+fn u8_to_i8(value: u8) -> i8 {
+    if value > i8::MAX as u8 {
+        i8::MAX
+    } else {
+        value as i8
+    }
 }

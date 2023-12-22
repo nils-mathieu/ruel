@@ -65,6 +65,10 @@ pub type ProcessId = usize;
 pub union WakeUp {
     /// The tag of the [`WakeUp`], indicating which condition is being waited on.
     pub tag: WakeUpTag,
+
+    pub now: WakeUpNow,
+    pub ps2_keyboard: WakeUpPS2Keyboard,
+    pub ps2_mouse: WakeUpPS2Mouse,
 }
 
 impl WakeUp {
@@ -80,50 +84,83 @@ impl WakeUp {
 loose_enum! {
     /// A tag that describes which condition a [`WakeUp`] is waiting on.
     pub struct WakeUpTag: u8 {
+        /// See [`WakeUpNow`].
+        const NOW = 0;
         /// The process is waiting for a byte of data to be available on the first PS/2 port.
-        const PS2_KEYBOARD = 0;
+        const PS2_KEYBOARD = 1;
+        /// The process is waiting for a byte of data to be available on the second PS/2 port.
+        const PS2_MOUSE = 2;
     }
 }
 
-/// A buffer that can hold PS/2 scan-codes.
+/// A [`WakeUp`] variant that indicates that the process does not actually wish to wait at all.
+///
+/// If the conditions are not immediately met, the process will instantly be woken up.
+#[derive(Clone, Copy)]
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct PS2Buffer {
-    /// The number of bytes that have been written to the buffer.
+pub struct WakeUpNow {
+    /// Must be [`WakeUpTag::NOW`].
+    pub tag: WakeUpTag,
+}
+
+/// A [`WakeUp`] variant that requests the kernel to wake the process up when some data is
+/// received from the PS/2 keyboard.
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct WakeUpPS2Keyboard {
+    /// Must be [`WakeUpTag::PS2_KEYBOARD`].
+    pub tag: WakeUpTag,
+    /// The number of bytes that have been written to the `scancodes` array.
     ///
     /// # Remarks
     ///
     /// It's possible for `length` to be larger than `SIZE`. This can be used to detect whether
     /// some bytes have been dropped since the last time the buffer was read.
     pub length: u8,
-    /// The buffer.
-    pub buffer: [u8; Self::SIZE],
+    /// The scan-codes received by the process.
+    pub scancodes: [u8; Self::SIZE],
 }
 
-impl PS2Buffer {
+impl WakeUpPS2Keyboard {
     /// The maximum number of bytes that can be received by the program during a single quantum.
     pub const SIZE: usize = 7;
-
-    /// An empty [`PS2Buffer`].
-    pub const EMPTY: Self = Self {
-        length: 0,
-        buffer: [0; Self::SIZE],
-    };
 }
 
 bitflags! {
-    /// Some flags used to configure a running process instance.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    /// Some flags associated with a [`WakeUpPS2Keyboard`].
     #[repr(transparent)]
-    pub struct ProcessConfig: usize {
-        /// Whether the process wants to block on potentially blocking system calls.
-        ///
-        /// When this flag is set, system calls that would block the process will return instantly
-        /// without blocking.
-        ///
-        /// Otherwise, those system calls will block the process until the condition is met.
-        const DONT_BLOCK = 1 << 0;
+    #[derive(Clone, Copy)]
+    pub struct WakeUpPS2MouseFlags: u8 {
+        /// Whether the left button of the mouse is currently being pressed.
+        const LEFT_BUTTON = 1 << 0;
+        /// Whether the right button of the mouse is currently being pressed.
+        const RIGHT_BUTTON = 1 << 1;
+        /// Whether the middle button of the mouse is currently being pressed.
+        const MIDDLE_BUTTON = 1 << 2;
+        /// Whether the fourth button of the mouse is currently being pressed.
+        const FOURTH_BUTTON = 1 << 3;
+        /// Whether the fifth button of the mouse is currently being pressed.
+        const FIFTH_BUTTON = 1 << 4;
+
+        /// Whether the mouse has moved, or whether a button was pressed since the last time the
+        /// process read the buffer.
+        const CHANGED = 1 << 7;
     }
+}
+
+/// A [`WakeUp`] variant that requests the kernel to wake the process up when some data is
+/// received from the PS/2 mouse.
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct WakeUpPS2Mouse {
+    /// Must be [`WakeUpTag::PS2_MOUSE`].
+    pub tag: WakeUpTag,
+    /// Some flags associated with the mouse.
+    pub flags: WakeUpPS2MouseFlags,
+    /// The amount of movement of the mouse since the last time the process read the buffer.
+    pub dx: i8,
+    /// The amount of movement of the mouse since the last time the process read the buffer.
+    pub dy: i8,
 }
 
 /// The verbosity level of a message logged through the logging system of the kernel.

@@ -2,7 +2,7 @@
 
 use core::ptr::NonNull;
 
-use ruel_sys::{ProcessConfig, WakeUp};
+use ruel_sys::{WakeUp, WakeUpPS2MouseFlags};
 use x86_64::{PageTable, PageTableIndex, PhysAddr, VirtAddr};
 
 use crate::cpu::paging::{AddressSpace, AddressSpaceContext, HHDM_OFFSET, KERNEL_BIT};
@@ -61,29 +61,16 @@ impl<T: ?Sized> ProcessPtr<T> {
     /// What we *do* need to care about, however, is to check the value just before we actually
     /// read it.
     #[inline]
-    pub fn as_ref(&self) -> &T {
-        unsafe { self.0.as_ref() }
+    pub fn as_mut(&mut self) -> &mut T {
+        unsafe { self.0.as_mut() }
     }
 }
 
 /// When a process is currently waiting for some condition to be met, this type stores which
 /// conditions are being waited on.
-pub enum SleepingState {
-    /// Pointer to a userspace buffer.
-    InProcess(ProcessPtr<[WakeUp]>),
-    /// Inline-waiting on a condition to avoid allocating memory.
-    InKernel(WakeUp),
-}
-
-impl SleepingState {
-    /// Returns a reference to the inner value.
-    #[inline]
-    pub fn as_ref(&self) -> &[WakeUp] {
-        match self {
-            Self::InProcess(ptr) => ptr.as_ref(),
-            Self::InKernel(wake_up) => core::slice::from_ref(wake_up),
-        }
-    }
+pub struct SleepingState {
+    /// The `WakeUp` instances provided by the process.
+    pub wake_ups: ProcessPtr<[WakeUp]>,
 }
 
 /// A process that's running on the system.
@@ -96,8 +83,6 @@ pub struct Process {
     pub io_states: IoStates,
     /// The state of the process.
     pub sleeping: Option<SleepingState>,
-    /// The configuration flags of the process.
-    pub config: ProcessConfig,
 }
 
 impl Process {
@@ -123,7 +108,6 @@ impl Process {
             registers: Registers::default(),
             sleeping: None,
             io_states: IoStates::empty(),
-            config: ProcessConfig::empty(),
         })
     }
 
@@ -132,10 +116,33 @@ impl Process {
         let mut woken_up = false;
 
         if let Some(sleeping) = &mut self.sleeping {
-            for wake_up in sleeping.as_ref() {
+            for wake_up in sleeping.wake_ups.as_mut() {
                 match wake_up.tag() {
+                    ruel_sys::WakeUpTag::NOW => {
+                        woken_up = true;
+                    }
                     ruel_sys::WakeUpTag::PS2_KEYBOARD => {
                         if self.io_states.ps2_keyboard.total_len() > 0 {
+                            let state = unsafe { &mut wake_up.ps2_keyboard };
+                            state.length = self.io_states.ps2_keyboard.total_len();
+                            self.io_states
+                                .ps2_keyboard
+                                .copy_to_slice(&mut state.scancodes);
+
+                            woken_up = true;
+                        }
+                    }
+                    ruel_sys::WakeUpTag::PS2_MOUSE => {
+                        if self
+                            .io_states
+                            .ps2_mouse_state
+                            .intersects(WakeUpPS2MouseFlags::CHANGED)
+                        {
+                            let state = unsafe { &mut wake_up.ps2_mouse };
+                            state.flags = self.io_states.ps2_mouse_state;
+                            state.dx = self.io_states.ps2_mouse_offset[0];
+                            state.dy = self.io_states.ps2_mouse_offset[1];
+
                             woken_up = true;
                         }
                     }
@@ -149,6 +156,8 @@ impl Process {
         if woken_up {
             self.sleeping = None;
         }
+
+        self.io_states.clear();
     }
 }
 
