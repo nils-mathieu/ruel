@@ -57,7 +57,12 @@ pub fn init(bootstrap_allocator: &mut BumpAllocator) -> Result<(), OutOfMemory> 
     idt[PIC_OFFSET + Irq::PS2Keyboard as u8] = int_gate(handlers::pic_ps2_keyboard as usize);
     idt[PIC_OFFSET + Irq::PS2Mouse as u8] = int_gate(handlers::pic_ps2_mouse as usize);
 
-    crate::io::ps2::init_aux();
+    match crate::io::ps2::init() {
+        Ok(()) => (),
+        Err(err) => {
+            log::warn!("failed to initialize the PS/2 controller: {}", err);
+        }
+    }
 
     pic::init();
     pit::init();

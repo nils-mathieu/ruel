@@ -173,8 +173,8 @@ pub extern "x86-interrupt" fn pic_ps2_keyboard(_frame: InterruptStackFrame) {
     #[cfg(debug_assertions)]
     {
         let status = ps2::status();
-        assert!(status.intersects(PS2Status::OUTPUT));
-        assert!(!status.intersects(PS2Status::SECOND_PS2));
+        assert!(status.intersects(PS2Status::OUTPUT_BUFFER_FULL));
+        assert!(!status.intersects(PS2Status::AUX_OUTPUT_BUFFER_FULL));
     }
 
     let scancode = ps2::read_data();
@@ -190,7 +190,8 @@ pub extern "x86-interrupt" fn pic_ps2_mouse(_frame: InterruptStackFrame) {
 
     crate::log::trace!("mouse");
 
-    debug_assert!(ps2::status().contains(PS2Status::OUTPUT | PS2Status::SECOND_PS2));
+    debug_assert!(ps2::status()
+        .contains(PS2Status::OUTPUT_BUFFER_FULL | PS2Status::AUX_OUTPUT_BUFFER_FULL));
 
     let flags = ps2::read_data();
     let x_movement = ps2::read_data();

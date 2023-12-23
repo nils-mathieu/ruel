@@ -222,20 +222,6 @@ pub fn despawn_process(process_id: ProcessId) -> SysResult {
     unsafe { SysResult::from_raw(syscall1(Sysno::DespawnProcess as usize, process_id)) }
 }
 
-/// Despawns (terminate) the current process.
-///
-/// # Returns
-///
-/// This function never returns.
-#[inline]
-pub fn despawn_self() -> ! {
-    unsafe {
-        let _ = despawn_process(ProcessId::MAX);
-        debug_assert!(false, "despawn_self() returned");
-        core::hint::unreachable_unchecked();
-    }
-}
-
 /// Puts the current process to sleep until it is woken up when any of the specified wake-up events
 /// occur.
 ///

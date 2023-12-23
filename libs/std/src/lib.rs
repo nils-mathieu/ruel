@@ -16,4 +16,11 @@ pub mod sleep;
 
 pub extern crate sys;
 
-pub use sys::despawn_self;
+/// Despawns the current process.
+#[inline]
+pub fn despawn() -> ! {
+    unsafe {
+        let _ = sys::despawn_process(sys::ProcessId::MAX);
+        core::hint::unreachable_unchecked();
+    }
+}
