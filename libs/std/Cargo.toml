@@ -5,11 +5,12 @@ authors = ["Nils Mathieu <contact@nils-mathieu.fr>"]
 edition = "2021"
 
 [features]
-default = ["framebuffer", "sleep", "process"]
+default = ["framebuffer", "sleep", "process", "clock"]
 
 framebuffer = []
 sleep = []
 process = []
+clock = []
 
 [dependencies]
 sys = { package = "ruel-sys", path = "../sys" }

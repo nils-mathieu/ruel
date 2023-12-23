@@ -34,6 +34,18 @@ macro_rules! loose_enum {
                 Self(raw)
             }
 
+            #[doc = ::core::concat!("Creates a new [`", stringify!($name), "`] from the provided known value.")]
+            ///
+            /// If the provided value is not a known variant, this function will return [`None`].
+            pub fn from_known(raw: $inner) -> Option<Self> {
+                match raw {
+                    $(
+                        $value => Some(Self($value)),
+                    )*
+                    _ => None,
+                }
+            }
+
             #[doc = ::core::concat!("Returns the raw value of this [`", stringify!($name), "`].")]
             #[inline]
             pub fn as_raw(self) -> $inner {

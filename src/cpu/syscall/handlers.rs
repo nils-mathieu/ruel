@@ -3,8 +3,9 @@
 use core::fmt::Write;
 use core::mem::MaybeUninit;
 use core::ptr::NonNull;
+use core::sync::atomic::Ordering::Relaxed;
 
-use ruel_sys::{Framebuffer, SysResult, Verbosity, WakeUp};
+use ruel_sys::{ClockId, Framebuffer, SysResult, Verbosity, WakeUp};
 use x86_64::{hlt, PageTableEntry, PhysAddr, VirtAddr};
 
 use crate::cpu::paging::{MappingError, HHDM_OFFSET};
@@ -150,6 +151,38 @@ pub unsafe extern "C" fn release_framebuffers(
     } else {
         SysResult::MISSING_CAPABILITY
     }
+}
+
+pub unsafe extern "C" fn read_clock(
+    clock_id: usize,
+    result: usize,
+    _: usize,
+    _: usize,
+    _: usize,
+    _: usize,
+) -> SysResult {
+    let glob = GlobalToken::get();
+
+    let clock_id = ClockId::from_raw(clock_id);
+
+    match clock_id {
+        ClockId::UPTIME => {
+            let result = unsafe { &mut *(result as *mut MaybeUninit<u64>) };
+            let upticks = glob.upticks.load(Relaxed);
+            result.write(
+                upticks
+                    .checked_mul(crate::cpu::idt::pit::interval_ns())
+                    .expect("uptime overflowed a 64-bit integer"),
+            );
+        }
+        ClockId::UPTICKS => {
+            let result = unsafe { &mut *(result as *mut MaybeUninit<u64>) };
+            result.write(glob.upticks.load(Relaxed));
+        }
+        _ => return SysResult::INVALID_VALUE,
+    }
+
+    SysResult::SUCCESS
 }
 
 /// See [`ruel_sys::kernel_log`].

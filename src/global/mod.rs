@@ -10,6 +10,7 @@ mod framebuffer;
 pub use self::framebuffer::*;
 
 use core::ops::Deref;
+use core::sync::atomic::AtomicU64;
 
 use x86_64::{PhysAddr, VirtAddr};
 
@@ -30,6 +31,9 @@ pub struct Global {
 
     /// The framebuffers available to the kernel.
     pub framebuffers: Framebuffers,
+
+    /// Stores the total number of ticks since the kernel was started.
+    pub upticks: AtomicU64,
 }
 
 /// The global state of the kernel.

@@ -7,6 +7,8 @@ pub use sys::SysResult;
 /// The result type of the crate.
 pub type Result<T> = core::result::Result<T, SysResult>;
 
+#[cfg(feature = "clock")]
+pub mod clock;
 #[cfg(feature = "framebuffer")]
 pub mod framebuffer;
 #[cfg(feature = "process")]

@@ -15,7 +15,7 @@ use crate::utility::BumpAllocator;
 
 mod handlers;
 mod pic;
-mod pit;
+pub mod pit;
 
 /// The offset used by the PIC to remap the interrupts.
 ///

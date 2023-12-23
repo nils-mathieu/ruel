@@ -1,5 +1,7 @@
 //! Implementations of the ISRs for the IST of the kernel.
 
+use core::sync::atomic::Ordering::Relaxed;
+
 use ruel_sys::WakeUpPS2MouseFlags;
 use x86_64::{read_cr2, InterruptStackFrame, PageFaultError};
 
@@ -163,6 +165,10 @@ pub extern "x86-interrupt" fn security_exception(
 
 pub extern "x86-interrupt" fn pic_timer(_frame: InterruptStackFrame) {
     let glob = GlobalToken::get();
+    assert!(
+        glob.upticks.fetch_add(1, Relaxed) != u64::MAX,
+        "the uptime counter overflowed"
+    );
     glob.processes.for_each_mut(Process::tick);
     super::pic::end_of_interrupt(Irq::Timer);
 }

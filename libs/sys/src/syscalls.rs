@@ -1,6 +1,6 @@
 use core::arch::asm;
 
-use crate::{Framebuffer, ProcessId, SysResult, Sysno, Verbosity, WakeUp};
+use crate::{ClockId, Framebuffer, ProcessId, SysResult, Sysno, Verbosity, WakeUp};
 
 /// Performs a system call with no arguments.
 ///
@@ -287,6 +287,29 @@ pub fn acquire_framebuffers(ret: *mut Framebuffer, count: *mut usize) -> SysResu
 /// Nothing.
 pub fn release_framebuffers() -> SysResult {
     unsafe { SysResult::from_raw(syscall0(Sysno::ReleaseFramebuffers as usize)) }
+}
+
+/// Reads the current value of the specified clock.
+///
+/// How the resulting result can be interpreted depends on the clock id. Their documentation
+/// explains how to interpret the resulting duration.
+///
+/// # Errors
+///
+/// - `INVALID_VALUE` if the `clock_id` is invalid.
+///
+/// # Returns
+///
+/// The current value of the specified clock.
+#[inline]
+pub fn read_clock(clock_id: ClockId, result: *mut u8) -> SysResult {
+    unsafe {
+        SysResult::from_raw(syscall2(
+            Sysno::ReadClock as usize,
+            clock_id.as_raw(),
+            result as usize,
+        ))
+    }
 }
 
 /// Sends a message using the kernel's logging system.

@@ -273,3 +273,24 @@ impl FramebufferFormat {
         }
     }
 }
+
+loose_enum! {
+    /// A clock that the system maintains.
+    pub struct ClockId: usize {
+        /// A monotically increasing clock that increments at a constant rate.
+        ///
+        /// This clock is guaranteed to start at the same time as the system is booted.
+        ///
+        /// The result type associated with this clock is a `u64` counting the number of
+        /// ticks since the system was booted.
+        const UPTICKS = 0;
+
+        /// A monotically increasing clock that increments at a constant rate.
+        ///
+        /// This clock is guaranteed to start at the same time as the system is booted.
+        ///
+        /// The result type associated with this clock is a `u64` counting the number of
+        /// nanoseconds since the system was booted.
+        const UPTIME = 1;
+    }
+}

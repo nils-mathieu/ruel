@@ -11,6 +11,7 @@
 use core::alloc::Layout;
 use core::arch::asm;
 use core::mem::size_of;
+use core::sync::atomic::AtomicU64;
 
 use limine::{File, FramebufferMemoryModel, MemmapEntry, MemmapType};
 use ruel_sys::{Framebuffer, FramebufferFormat};
@@ -249,14 +250,15 @@ unsafe extern "C" fn main() -> ! {
     Efer::read().union(Efer::NO_EXECUTE).write();
 
     // Create the kernel's address space.
-    let address_space = unsafe {
-        create_kernel_address_space(
-            &mut bootstrap_allocator,
-            bootloader_hhdm as usize,
-            kernel_address.physical_base,
-            find_memory_upper_bound(memory_map),
-        )
-    };
+    let address_space =
+        unsafe {
+            create_kernel_address_space(
+                &mut bootstrap_allocator,
+                bootloader_hhdm as usize,
+                kernel_address.physical_base,
+                find_memory_upper_bound(memory_map),
+            )
+        };
 
     log::trace!("Kernel L4 Table stored at address {:#x}", address_space);
 
@@ -376,16 +378,18 @@ extern "C" fn with_new_stack(package: *mut ToNewStack) -> ! {
     let allocator = initialize_global_allocator(&usable_memory, bootstrap_allocator, hhdm);
 
     log::trace!("Initializing the global kernel state...");
-    let glob = crate::global::init(
-        Global {
-            allocator: Mutex::new(allocator),
-            kernel_physical_base,
-            address_space,
-            processes,
-            framebuffers: Framebuffers::new(usable_framebuffers),
-        },
-        kernel_stack_top,
-    );
+    let glob =
+        crate::global::init(
+            Global {
+                allocator: Mutex::new(allocator),
+                kernel_physical_base,
+                address_space,
+                processes,
+                framebuffers: Framebuffers::new(usable_framebuffers),
+                upticks: AtomicU64::new(0),
+            },
+            kernel_stack_top,
+        );
 
     // =============================================================================================
     // System Calls
@@ -397,10 +401,7 @@ extern "C" fn with_new_stack(package: *mut ToNewStack) -> ! {
     // =============================================================================================
     let id = glob
         .processes
-        .spawn_process(crate::boot::init_process::load_any(
-            init_process,
-            init_process_cmdline,
-        ))
+        .spawn_process(crate::boot::init_process::load_any(init_process, init_process_cmdline))
         .unwrap();
     glob.processes.schedule(id).unwrap();
 
@@ -780,11 +781,12 @@ pub unsafe fn create_kernel_address_space(
         }
     }
 
-    let mut address_space = AddressSpace::new(Context {
-        allocator: boostrap_allocator,
-        hhdm,
-    })
-    .unwrap_or_else(|_| oom());
+    let mut address_space =
+        AddressSpace::new(Context {
+            allocator: boostrap_allocator,
+            hhdm,
+        })
+        .unwrap_or_else(|_| oom());
 
     // Create a direct mapping of the system's available memory (our very own higher half
     // direct map).
