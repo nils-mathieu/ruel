@@ -24,7 +24,7 @@ static SYSTEM_CALLS: [SystemCallFn; SYSTEM_CALL_COUNT] = [
     handlers::sleep,
     handlers::acquire_framebuffers,
     handlers::release_framebuffers,
-    handlers::read_clock,
+    handlers::read_value,
     handlers::kernel_log,
 ];
 

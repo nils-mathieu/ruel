@@ -1,15 +1,12 @@
 //! Access to the Programmable Interval Timer (PIT).
 
-use core::sync::atomic::AtomicU64;
+use core::sync::atomic::AtomicU32;
 use core::sync::atomic::Ordering::Relaxed;
 
 use bitflags::bitflags;
 use x86_64::outb;
 
 use crate::log;
-
-/// The data port used to send data bytes to the PIT (channel 0).
-const PORT_DATA: u16 = 0x40;
 
 bitflags! {
     /// The command codes that can be sent to the PIT.
@@ -19,7 +16,6 @@ bitflags! {
 
         /// Data transfered from/to the PIT is read as a sequence of two bytes to make a 16-bit
         /// word.
-        ///
         ///
         /// The low byte is sent first, followed by the high byte.
         const ACCESS_MODE_LO_HI = 0b11 << 4;
@@ -45,8 +41,8 @@ fn command(cmd: PitCmd) {
 #[inline]
 fn set_reload_value(data: u16) {
     unsafe {
-        outb(PORT_DATA, (data & 0xFF) as u8);
-        outb(PORT_DATA, ((data >> 8) & 0xFF) as u8);
+        outb(0x40, (data & 0xFF) as u8);
+        outb(0x40, ((data >> 8) & 0xFF) as u8);
     }
 }
 
@@ -96,21 +92,31 @@ fn reload_value_to_freq(rl: usize) -> f64 {
 
 /// Computes the number of nanoseconds between two interrupts, for the provided
 /// reload value.
-fn reload_value_to_ns(rl: usize) -> u64 {
+fn reload_value_to_ns(rl: usize) -> u32 {
     // freq = 3579545 / (3 * rl)
     // ns   = 1e9 / freq
     //      = 3 * rl * 1e9 / 3579545
-    divide_rounded(3 * rl * 1_000_000_000, 3579545) as u64
+    let ret = divide_rounded(3 * rl * 1_000_000_000, 3579545);
+
+    #[cfg(debug_assertions)]
+    {
+        ret.try_into()
+            .expect("computed tick duration overflows a 32-bit integer")
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        ret as u32
+    }
 }
 
 /// Once the PIT has been initialized, this stores the number of nanoseconds between two
 /// interrupts sent by the PIT.
-static INTERVAL_NS: AtomicU64 = AtomicU64::new(0);
+static INTERVAL_NS: AtomicU32 = AtomicU32::new(0);
 
 /// Once the PIT has been initialized, this returns the number of nanoseconds between two
 /// interrupts sent by the PIT.
 #[inline]
-pub fn interval_ns() -> u64 {
+pub fn interval_ns() -> u32 {
     INTERVAL_NS.load(Relaxed)
 }
 

@@ -5,7 +5,7 @@ use core::mem::MaybeUninit;
 use core::ptr::NonNull;
 use core::sync::atomic::Ordering::Relaxed;
 
-use ruel_sys::{ClockId, Framebuffer, SysResult, Verbosity, WakeUp};
+use ruel_sys::{Framebuffer, SysResult, Value, Verbosity, WakeUp};
 use x86_64::{hlt, PageTableEntry, PhysAddr, VirtAddr};
 
 use crate::cpu::paging::{MappingError, HHDM_OFFSET};
@@ -153,8 +153,8 @@ pub unsafe extern "C" fn release_framebuffers(
     }
 }
 
-pub unsafe extern "C" fn read_clock(
-    clock_id: usize,
+pub unsafe extern "C" fn read_value(
+    value: usize,
     result: usize,
     _: usize,
     _: usize,
@@ -163,21 +163,26 @@ pub unsafe extern "C" fn read_clock(
 ) -> SysResult {
     let glob = GlobalToken::get();
 
-    let clock_id = ClockId::from_raw(clock_id);
-
-    match clock_id {
-        ClockId::UPTIME => {
-            let result = unsafe { &mut *(result as *mut MaybeUninit<u64>) };
-            let upticks = glob.upticks.load(Relaxed);
-            result.write(
-                upticks
-                    .checked_mul(crate::cpu::idt::pit::interval_ns())
-                    .expect("uptime overflowed a 64-bit integer"),
-            );
-        }
-        ClockId::UPTICKS => {
+    match Value::from_raw(value) {
+        Value::UPTICKS => {
             let result = unsafe { &mut *(result as *mut MaybeUninit<u64>) };
             result.write(glob.upticks.load(Relaxed));
+        }
+        Value::UPTIME => {
+            let result = unsafe { &mut *(result as *mut MaybeUninit<ruel_sys::Duration>) };
+            let ticks = glob.upticks.load(Relaxed);
+            let ns_per_tick = crate::cpu::idt::pit::interval_ns();
+            let total_ns = ticks as u128 * ns_per_tick as u128;
+            let total_secs = (total_ns / 1_000_000_000) as u64;
+            let subsec_ns = (total_ns % 1_000_000_000) as u64;
+            result.write(ruel_sys::Duration {
+                seconds: total_secs,
+                nanoseconds: subsec_ns,
+            });
+        }
+        Value::NANOSECONDS_PER_TICK => {
+            let result = unsafe { &mut *(result as *mut MaybeUninit<u32>) };
+            result.write(crate::cpu::idt::pit::interval_ns());
         }
         _ => return SysResult::INVALID_VALUE,
     }

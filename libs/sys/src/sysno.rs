@@ -9,8 +9,8 @@ pub enum Sysno {
     AcquireFramebuffers,
     /// See [`release_framebuffers`](crate::release_framebuffers).
     ReleaseFramebuffers,
-    /// See [`read_clock`](crate::read_clock).
-    ReadClock,
+    /// See [`read_value`](crate::read_value).
+    ReadValue,
     /// See [`kernel_log`](crate::kernel_log).
     KernelLog,
 }

@@ -275,22 +275,57 @@ impl FramebufferFormat {
 }
 
 loose_enum! {
-    /// A clock that the system maintains.
-    pub struct ClockId: usize {
-        /// A monotically increasing clock that increments at a constant rate.
+    /// A value that the kernel recognizes and may provide a value for.
+    pub struct Value: usize {
+        /// Corresponds to the number of ticks that have elapsed since the kernel was started.
         ///
-        /// This clock is guaranteed to start at the same time as the system is booted.
-        ///
-        /// The result type associated with this clock is a `u64` counting the number of
-        /// ticks since the system was booted.
+        /// The result type associated with this value is a `u64` counting the number of
+        /// nanoseconds since the system was booted.
         const UPTICKS = 0;
 
-        /// A monotically increasing clock that increments at a constant rate.
+        /// Corresponds to the amount of time that have elapsed since the kernel
+        /// was first started.
         ///
-        /// This clock is guaranteed to start at the same time as the system is booted.
+        /// The result type associated with this value is a `Duration` counting the amount
+        /// of time since the system was booted.
         ///
-        /// The result type associated with this clock is a `u64` counting the number of
-        /// nanoseconds since the system was booted.
+        /// # Remarks
+        ///
+        /// Due to both hardware and software limitations, this clock is not guaranteed to
+        /// remain accurate over long periods of time (it is expect to drift by a few seconds
+        /// per day).
         const UPTIME = 1;
+
+        /// The number of nanoseconds each tick lasts for.
+        ///
+        /// The [`UPTIME`] value is actually simply this value multiplied by [`UPTICKS`].
+        ///
+        /// The result type associated with this value is a `u32` counting the number of
+        /// nanoseconds.
+        ///
+        /// [`UPTIME`]: Value::UPTIME
+        /// [`UPTICKS`]: Value::UPTICKS
+        const NANOSECONDS_PER_TICK = 2;
     }
+}
+
+/// Represents a duration.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct Duration {
+    /// The total number of seconds in the duration.
+    pub seconds: u64,
+    /// The number of sub-second nanoseconds.
+    ///
+    /// This value is always less than 1_000_000_000.
+    pub nanoseconds: u64,
+}
+
+impl Duration {
+    /// Creates a new [`Duration`] from the provided number of seconds and nanoseconds.
+    pub const ZERO: Self =
+        Self {
+            seconds: 0,
+            nanoseconds: 0,
+        };
 }

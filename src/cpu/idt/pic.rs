@@ -3,76 +3,102 @@
 use bitflags::bitflags;
 use x86_64::outb;
 
-/// The base address of the master PIC.
-const PIC1: u16 = 0x20;
-/// The base address of the slave PIC.
-const PIC2: u16 = 0xA0;
+/// A PIC (Programmable Interrupt Controller).
+struct Pic {
+    cmd: u16,
+    data: u16,
+}
 
-/// The command port of the master PIC.
-const PIC1_CMD: u16 = PIC1;
-/// The data port of the master PIC.
-const PIC1_DATA: u16 = PIC1 + 1;
-/// The command port of the slave PIC.
-const PIC2_CMD: u16 = PIC2;
-/// The data port of the slave PIC.
-const PIC2_DATA: u16 = PIC2 + 1;
+impl Pic {
+    /// The first PIC.
+    pub const MASTER: Self = Self {
+        cmd: 0x20,
+        data: 0x21,
+    };
 
-/// The command-code of the end-of-interrupt (EOI) command.
-const CMD_CODE_EOI: u8 = 0x20;
+    /// The second PIC.
+    pub const SLAVE: Self = Self {
+        cmd: 0xA0,
+        data: 0xA1,
+    };
 
-/// For initialization, code that indicates that ICW4 will be present.
-const CMD_CODE_ICW4: u8 = 0x01;
-/// For initialization, code that starts the initialization sequence.
-const CMD_CODE_INIT: u8 = 0x10;
-/// For initialization, code that indicates that the PIC is in 8086 mode.
-const CMD_CODE_ICW4_8086: u8 = 0x01;
+    /// Sends a command byte to the PIC.
+    #[inline]
+    pub fn command(self, cmd: u8) {
+        unsafe { outb(self.cmd, cmd) }
+    }
+
+    /// Writes data to the PIC.
+    #[inline]
+    pub fn write(self, data: u8) {
+        unsafe { outb(self.data, data) }
+    }
+}
 
 /// Initializes the PIC.
 pub fn init() {
-    unsafe {
-        // Start the initialization sequence by sending the initialization command to both PICs.
-        outb(PIC1_CMD, CMD_CODE_INIT | CMD_CODE_ICW4);
-        wait_a_bit();
-        outb(PIC2_CMD, CMD_CODE_INIT | CMD_CODE_ICW4);
-        wait_a_bit();
+    // ICW stands for "Initialization Command Word" btw.
 
-        // Indicate which vector offset the PICs should use.
-        outb(PIC1_DATA, super::PIC_OFFSET);
-        wait_a_bit();
-        outb(PIC2_DATA, super::PIC_OFFSET + 8);
-        wait_a_bit();
+    // Start the initialization sequence by sending the initialization command to both PICs.
+    //
+    // bit 0 - indicates that ICW4 is needed.
+    // bit 1 - cascade mode (we're using a master/slave configuration).
+    // bit 2 - call address interval (interval of 8)
+    // bit 3 - edge triggered mode
+    // bit 4 - start initialization sequence (this bit is required to start the initialization
+    //         sequence).
+    Pic::MASTER.command(0x11);
+    wait_a_bit();
+    Pic::SLAVE.command(0x11);
+    wait_a_bit();
 
-        // Tell the master PIC that there is a slave PIC at IRQ2 (0000 0100).
-        outb(PIC1_DATA, 4);
-        wait_a_bit();
-        outb(PIC2_DATA, 2);
-        wait_a_bit();
+    // Indicate which vector offset the PICs should use.
+    //
+    // This is ICW2.
+    Pic::MASTER.write(super::PIC_OFFSET);
+    wait_a_bit();
+    Pic::SLAVE.write(super::PIC_OFFSET + 8);
+    wait_a_bit();
 
-        // Use 8086 mode instead of 8080 mode.
-        outb(PIC1_DATA, CMD_CODE_ICW4_8086);
-        wait_a_bit();
-        outb(PIC2_DATA, CMD_CODE_ICW4_8086);
-        wait_a_bit();
-    }
+    // Tell the master PIC that there is a slave PIC at IRQ2 (0000 0100).
+    //
+    // This is ICW3 (master and slave don't have the same meaning at that point).
+    Pic::MASTER.write(1 << 2);
+    wait_a_bit();
+    Pic::SLAVE.write(1 << 1);
+    wait_a_bit();
+
+    // Use 8086 mode instead of 8085 mode.
+    //
+    // This is ICW4 (we requested it in the first command).
+    Pic::MASTER.write(0x01);
+    wait_a_bit();
+    Pic::SLAVE.write(0x01);
+    wait_a_bit();
 }
 
 /// Send an END-OF-INTERRUPT command to the PIC for the provided IRQ.
 #[inline]
 pub fn end_of_interrupt(irq: Irq) {
+    // EOI is bit 5 of the operation command word (OCW2).
+    // That word is sent to the command register.
+
     if irq as u8 >= 8 {
-        unsafe { outb(PIC2_CMD, CMD_CODE_EOI) };
+        Pic::SLAVE.command(1 << 5);
     }
 
-    unsafe { outb(PIC1_CMD, CMD_CODE_EOI) };
+    Pic::MASTER.command(1 << 5);
 }
 
 /// Sets the IRQ mask for the PIC.
 #[inline]
 pub fn set_irq_mask(masked_irqs: Irqs) {
-    unsafe {
-        outb(PIC1_DATA, masked_irqs.bits() as u8);
-        outb(PIC2_DATA, (masked_irqs.bits() >> 8) as u8);
-    }
+    // OCW1 is the operation command word 1. It contains a mask
+    // of the IRQs that should be disabled.
+    // That word is sent to the data register.
+
+    Pic::MASTER.write(masked_irqs.bits() as u8);
+    Pic::SLAVE.write((masked_irqs.bits() >> 8) as u8);
 }
 
 /// Perform an operation that takes a bit of time to complete but has no side effects. This is
@@ -84,7 +110,7 @@ pub fn set_irq_mask(masked_irqs: Irqs) {
 fn wait_a_bit() {
     // Any unused port works for this. Linux uses 0x80, so we'll use that too. It's almost always
     // unused after boot.
-    unsafe { outb(0x80, 0) };
+    unsafe { outb(0x80, 0u8) };
 }
 
 /// A possible IRQ number.
