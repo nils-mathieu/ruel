@@ -93,12 +93,13 @@ impl<T> OnceLock<T> {
         let _restore_interrupts = RestoreInterrupts::without_interrupts();
 
         loop {
-            let state = self.state.compare_exchange_weak(
-                State::Uninitialized,
-                State::Initializing,
-                Acquire,
-                Acquire,
-            );
+            let state =
+                self.state.compare_exchange_weak(
+                    State::Uninitialized,
+                    State::Initializing,
+                    Acquire,
+                    Acquire,
+                );
 
             match state {
                 // We successfully transitioned from `Uninitialized` to `Initializing`, meaning

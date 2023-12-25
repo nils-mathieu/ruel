@@ -11,6 +11,8 @@ pub enum Sysno {
     ReleaseFramebuffers,
     /// See [`read_value`](crate::read_value).
     ReadValue,
+    /// See [`enumerate_pci_devices`](crate::enumerate_pci_devices).
+    EnumeratePciDevices,
     /// See [`kernel_log`](crate::kernel_log).
     KernelLog,
 }

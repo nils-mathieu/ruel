@@ -370,6 +370,7 @@ extern "C" fn with_new_stack(package: *mut ToNewStack) -> ! {
     // =============================================================================================
     crate::cpu::gdt::init(&mut bootstrap_allocator, kernel_stack_top).unwrap_or_else(|_| oom());
     crate::cpu::idt::init(&mut bootstrap_allocator).unwrap_or_else(|_| oom());
+    let pci_devices = crate::io::pci::init(&mut bootstrap_allocator).unwrap_or_else(|_| oom());
 
     // =============================================================================================
     // Global Kernel State
@@ -378,18 +379,18 @@ extern "C" fn with_new_stack(package: *mut ToNewStack) -> ! {
     let allocator = initialize_global_allocator(&usable_memory, bootstrap_allocator, hhdm);
 
     log::trace!("Initializing the global kernel state...");
-    let glob =
-        crate::global::init(
-            Global {
-                allocator: Mutex::new(allocator),
-                kernel_physical_base,
-                address_space,
-                processes,
-                framebuffers: Framebuffers::new(usable_framebuffers),
-                upticks: AtomicU64::new(0),
-            },
-            kernel_stack_top,
-        );
+    let glob = crate::global::init(
+        Global {
+            allocator: Mutex::new(allocator),
+            kernel_physical_base,
+            address_space,
+            processes,
+            framebuffers: Framebuffers::new(usable_framebuffers),
+            upticks: AtomicU64::new(0),
+            pci_devices,
+        },
+        kernel_stack_top,
+    );
 
     // =============================================================================================
     // System Calls

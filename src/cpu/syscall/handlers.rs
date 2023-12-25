@@ -5,7 +5,7 @@ use core::mem::MaybeUninit;
 use core::ptr::NonNull;
 use core::sync::atomic::Ordering::Relaxed;
 
-use ruel_sys::{Framebuffer, SysResult, Value, Verbosity, WakeUp};
+use ruel_sys::{Framebuffer, PciDevice, SysResult, Value, Verbosity, WakeUp};
 use x86_64::{hlt, PageTableEntry, PhysAddr, VirtAddr};
 
 use crate::cpu::paging::{MappingError, HHDM_OFFSET};
@@ -153,6 +153,7 @@ pub unsafe extern "C" fn release_framebuffers(
     }
 }
 
+/// See [`ruel_sys::read_value`].
 pub unsafe extern "C" fn read_value(
     value: usize,
     result: usize,
@@ -186,6 +187,32 @@ pub unsafe extern "C" fn read_value(
         }
         _ => return SysResult::INVALID_VALUE,
     }
+
+    SysResult::SUCCESS
+}
+
+/// See [`ruel_sys::enumerate_pci_devices`].
+pub unsafe extern "C" fn enumerate_pci_devices(
+    devices: usize,
+    count: usize,
+    _: usize,
+    _: usize,
+    _: usize,
+    _: usize,
+) -> SysResult {
+    let glob = GlobalToken::get();
+
+    let count = unsafe { &mut *(count as *mut usize) };
+
+    unsafe {
+        core::ptr::copy_nonoverlapping(
+            glob.pci_devices.as_ptr(),
+            devices as *mut PciDevice,
+            glob.pci_devices.len().min(*count),
+        );
+    }
+
+    *count = glob.pci_devices.len();
 
     SysResult::SUCCESS
 }

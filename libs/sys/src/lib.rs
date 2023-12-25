@@ -329,3 +329,23 @@ impl Duration {
             nanoseconds: 0,
         };
 }
+
+loose_enum! {
+    /// The unique ID of a vendor of PCI devices.
+    pub struct VendorId: u16 {
+        /// Intel Corporation.
+        const INTEL = 0x8086;
+    }
+}
+
+/// Stores information about an available PCI device.
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct PciDevice {
+    /// The address of the device.
+    pub address: u32,
+    /// The ID of the PCI device, used to recognize the device.
+    pub id: u16,
+    /// The vendor ID of the device.
+    pub vendor: VendorId,
+}

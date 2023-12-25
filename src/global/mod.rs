@@ -12,6 +12,7 @@ pub use self::framebuffer::*;
 use core::ops::Deref;
 use core::sync::atomic::AtomicU64;
 
+use ruel_sys::PciDevice;
 use x86_64::{PhysAddr, VirtAddr};
 
 use crate::sync::{Mutex, OnceLock};
@@ -34,6 +35,9 @@ pub struct Global {
 
     /// Stores the total number of ticks since the kernel was started.
     pub upticks: AtomicU64,
+
+    /// The list of PCI devices that have been found on the machine.
+    pub pci_devices: &'static [PciDevice],
 }
 
 /// The global state of the kernel.

@@ -1,6 +1,6 @@
 use core::arch::asm;
 
-use crate::{Framebuffer, ProcessId, SysResult, Sysno, Value, Verbosity, WakeUp};
+use crate::{Framebuffer, PciDevice, ProcessId, SysResult, Sysno, Value, Verbosity, WakeUp};
 
 /// Performs a system call with no arguments.
 ///
@@ -250,10 +250,10 @@ pub fn sleep(wake_ups: *mut WakeUp, wake_up_len: usize) -> SysResult {
 ///
 /// # Parameters
 ///
-/// - `ret`: Either a null pointer, or a pointer to an array of [`Framebuffer`] instances.
+/// - `ret`: A pointer to an array of `count` [`Framebuffer`] instances.
 ///
 /// - `count`: The maximum number of [`Framebuffer`] instances that can be written by the kernel
-///   at `ret` (if non-null), and upon return, the number of framebuffers available on the system.
+///   at `ret`, and upon return, the number of framebuffers available on the system.
 ///
 /// # Errors
 ///
@@ -307,6 +307,33 @@ pub fn read_value(value: Value, result: *mut u8) -> SysResult {
             Sysno::ReadValue as usize,
             value.as_raw(),
             result as usize,
+        ))
+    }
+}
+
+/// Enumerates the available PCI devices on the system.
+///
+/// # Parameters
+///
+/// - `devices`: A pointer to an array of `count` [`PciDevice`] instances.
+///
+/// - `count`: The maximum number of [`PciDevice`] instances that can be written by the kernel
+///   at `devices`, and upon return, the number of PCI devices available on the system.
+///
+/// # Returns
+///
+/// At most `count` PCI devices are written to `devices`. If `count` is zero, `devices` is not
+/// observed.
+///
+/// The number of PCI devices available is written to `count` whatever is written
+/// to `devices`.
+#[inline]
+pub fn enumerate_pci_devices(devices: *mut PciDevice, count: *mut usize) -> SysResult {
+    unsafe {
+        SysResult::from_raw(syscall2(
+            Sysno::EnumeratePciDevices as usize,
+            devices as usize,
+            count as usize,
         ))
     }
 }

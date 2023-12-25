@@ -157,6 +157,44 @@ pub unsafe fn inb(port: u16) -> u8 {
     value
 }
 
+/// Writes a word to the provided I/O port.
+///
+/// # Safety
+///
+/// Writing to arbitrary I/O ports can compromise memory safety.
+#[inline]
+pub unsafe fn outl(port: u16, value: u32) {
+    unsafe {
+        asm!(
+            "out dx, eax",
+            in("dx") port,
+            in("eax") value,
+            options(nomem, nostack, preserves_flags),
+        );
+    }
+}
+
+/// Reads a word from the provided I/O port.
+///
+/// # Safety
+///
+/// Reading from arbitrary I/O ports can compromise memory safety.
+#[inline]
+pub unsafe fn inl(port: u16) -> u32 {
+    let value: u32;
+
+    unsafe {
+        asm!(
+            "in eax, dx",
+            in("dx") port,
+            out("eax") value,
+            options(nomem, nostack, preserves_flags),
+        );
+    }
+
+    value
+}
+
 /// Reads the contents of the provided model-specific register (MSR).
 ///
 /// # Safety

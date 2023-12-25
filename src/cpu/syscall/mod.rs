@@ -12,7 +12,7 @@ mod handlers;
 type SystemCallFn = unsafe extern "C" fn(usize, usize, usize, usize, usize, usize) -> SysResult;
 
 /// The total number of system calls.
-const SYSTEM_CALL_COUNT: usize = 6;
+const SYSTEM_CALL_COUNT: usize = 7;
 
 /// A lookup table of system call handlers.
 ///
@@ -25,6 +25,7 @@ static SYSTEM_CALLS: [SystemCallFn; SYSTEM_CALL_COUNT] = [
     handlers::acquire_framebuffers,
     handlers::release_framebuffers,
     handlers::read_value,
+    handlers::enumerate_pci_devices,
     handlers::kernel_log,
 ];
 

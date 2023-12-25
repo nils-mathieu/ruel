@@ -14,9 +14,10 @@ pub unsafe trait WakeUp {
 pub struct Now(sys::WakeUpNow);
 
 unsafe impl WakeUp for Now {
-    const DEFAULT: Self = Self(sys::WakeUpNow {
-        tag: sys::WakeUpTag::NOW,
-    });
+    const DEFAULT: Self =
+        Self(sys::WakeUpNow {
+            tag: sys::WakeUpTag::NOW,
+        });
 }
 
 /// A [`WakeUp`] implementation that requests the kernel to wake the process up when the PS/2
