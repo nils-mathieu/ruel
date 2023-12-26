@@ -1,6 +1,6 @@
 use core::arch::asm;
 
-use crate::SegmentSelector;
+use crate::{SegmentSelector, VirtAddr};
 
 /// A pointer to a table (such as the GDT or IDT).
 #[repr(C, packed)]
@@ -97,6 +97,7 @@ pub unsafe fn ltr(selector: SegmentSelector) {
 }
 
 /// Executes the HLT instruction.
+#[inline]
 pub fn hlt() {
     unsafe {
         asm!("hlt", options(nomem, nostack, preserves_flags));
@@ -200,6 +201,7 @@ pub unsafe fn inl(port: u16) -> u32 {
 /// # Safety
 ///
 /// Reading from arbitrary MSRs can compromise memory safety.
+#[inline]
 pub unsafe fn rdmsr(msr: u32) -> u64 {
     let mut low: u32;
     let mut high: u32;
@@ -222,6 +224,7 @@ pub unsafe fn rdmsr(msr: u32) -> u64 {
 /// # Safety
 ///
 /// Writing to arbitrary MSRs can compromise memory safety.
+#[inline]
 pub unsafe fn wrmsr(msr: u32, val: u64) {
     unsafe {
         asm!(
@@ -251,11 +254,8 @@ pub unsafe fn int<const N: u8>() {
 }
 
 /// Invalidates the TLB entry for the provided virtual address.
-///
-/// # Safety
-///
-/// Invalidating the TLB entry for an invalid virtual address can compromise memory safety.
-pub unsafe fn invlpg(addr: *const ()) {
+#[inline]
+pub fn invlpg(addr: VirtAddr) {
     unsafe {
         asm!(
             "invlpg [{}]",

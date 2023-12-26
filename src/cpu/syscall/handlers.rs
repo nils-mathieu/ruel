@@ -6,7 +6,7 @@ use core::ptr::NonNull;
 use core::sync::atomic::Ordering::Relaxed;
 
 use ruel_sys::{Framebuffer, PciDevice, ProtectionFlags, SysResult, Value, Verbosity, WakeUp};
-use x86_64::{hlt, invlpg, PageTableEntry, PhysAddr, VirtAddr};
+use x86_64::{hlt, invlpg, page_align_up, PageTableEntry, PhysAddr, VirtAddr};
 
 use crate::cpu::paging::{MappingError, FOUR_KIB, HHDM_OFFSET};
 use crate::global::GlobalToken;
@@ -104,15 +104,35 @@ pub unsafe extern "C" fn acquire_framebuffers(
             // Allocate the framebuffer in the user's address space.
             let mut process = glob.processes.current();
 
+            let mapped_size = page_align_up(framebuffer.size());
+
+            let address = match process.address_space.find_unmapped_range(mapped_size) {
+                Some(address) => address,
+                None => return SysResult::OUT_OF_MEMORY,
+            };
+
+            log::trace!("{:#x}..{:#x}", address, address + mapped_size);
+
             match process.address_space.map_range(
-                0x100_0000, // TODO: Allocate virtual memory
+                address,
                 (framebuffer.address as VirtAddr - HHDM_OFFSET) as PhysAddr,
-                framebuffer.size(),
+                mapped_size,
                 PageTableEntry::WRITABLE | PageTableEntry::USER_ACCESSIBLE,
             ) {
                 Ok(()) => (),
                 Err(MappingError::OutOfMemory) => return SysResult::OUT_OF_MEMORY,
                 Err(MappingError::AlreadyMapped) => unreachable!("framebuffer already mapped"),
+            }
+
+            {
+                let mut virt = address;
+                let mut size = mapped_size;
+
+                while size != 0 {
+                    invlpg(virt);
+                    virt += FOUR_KIB;
+                    size -= FOUR_KIB;
+                }
             }
 
             // Save the mapping in the metadata.
@@ -122,7 +142,7 @@ pub unsafe extern "C" fn acquire_framebuffers(
             metadata[0].virt_size = framebuffer.size();
 
             ret.write(Framebuffer {
-                address: 0x100_0000 as *mut u8,
+                address: address as *mut u8,
                 ..framebuffer
             });
         }
@@ -261,7 +281,7 @@ pub unsafe extern "C" fn map_memory(
             out.write(virt as *mut u8);
 
             while count != 0 {
-                unsafe { invlpg(addr as *mut ()) };
+                invlpg(addr);
                 addr += FOUR_KIB;
                 count -= FOUR_KIB;
             }
@@ -293,7 +313,7 @@ pub unsafe extern "C" fn unmap_memory(
     match current.address_space.unmap_range(addr, count) {
         Ok(()) => {
             while count != 0 {
-                unsafe { invlpg(addr as *mut ()) };
+                invlpg(addr);
                 addr += FOUR_KIB;
                 count -= FOUR_KIB;
             }

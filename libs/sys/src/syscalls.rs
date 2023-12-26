@@ -261,7 +261,8 @@ pub fn sleep(wake_ups: *mut WakeUp, wake_up_len: usize) -> SysResult {
 ///
 /// - `RESOURCE_BUSY` if the framebuffers are currently owned by another process.
 ///
-/// - `OUT_OF_MEMORY` if the kernel is unable to allocate memory for bookkeeping.
+/// - `OUT_OF_MEMORY` if the kernel is unable to allocate memory for bookkeeping (mainly to map
+///   the framebuffers into the process's address space).
 ///
 /// # Returns
 ///
