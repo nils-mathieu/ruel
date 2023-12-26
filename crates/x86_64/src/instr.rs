@@ -249,3 +249,18 @@ pub unsafe fn int<const N: u8>() {
         );
     }
 }
+
+/// Invalidates the TLB entry for the provided virtual address.
+///
+/// # Safety
+///
+/// Invalidating the TLB entry for an invalid virtual address can compromise memory safety.
+pub unsafe fn invlpg(addr: *const ()) {
+    unsafe {
+        asm!(
+            "invlpg [{}]",
+            in(reg) addr,
+            options(nomem, nostack, preserves_flags),
+        );
+    }
+}

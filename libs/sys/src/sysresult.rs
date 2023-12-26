@@ -102,4 +102,12 @@ define_error_codes! {
     /// The operation failed because the kernel ran out of memory.
     "out of memory"
     const OUT_OF_MEMORY = 5;
+
+    /// The requested memory address is already mapped to another physical page
+    /// and can therefore not be mapped again.
+    ///
+    /// This error is also returned when a request to unmap a page is made, but the page is not
+    /// mapped to physical memory.
+    "address already mapped"
+    const ALREADY_MAPPED = 6;
 }

@@ -5,10 +5,10 @@ use core::mem::MaybeUninit;
 use core::ptr::NonNull;
 use core::sync::atomic::Ordering::Relaxed;
 
-use ruel_sys::{Framebuffer, PciDevice, SysResult, Value, Verbosity, WakeUp};
-use x86_64::{hlt, PageTableEntry, PhysAddr, VirtAddr};
+use ruel_sys::{Framebuffer, PciDevice, ProtectionFlags, SysResult, Value, Verbosity, WakeUp};
+use x86_64::{hlt, invlpg, PageTableEntry, PhysAddr, VirtAddr};
 
-use crate::cpu::paging::{MappingError, HHDM_OFFSET};
+use crate::cpu::paging::{MappingError, FOUR_KIB, HHDM_OFFSET};
 use crate::global::GlobalToken;
 use crate::log;
 use crate::process::{ProcessPtr, SleepingState};
@@ -215,6 +215,93 @@ pub unsafe extern "C" fn enumerate_pci_devices(
     *count = glob.pci_devices.len();
 
     SysResult::SUCCESS
+}
+
+/// See [`ruel_sys::unmap_memory`].
+pub unsafe extern "C" fn map_memory(
+    mut addr: usize,
+    mut count: usize,
+    prot: usize,
+    out: usize,
+    _: usize,
+    _: usize,
+) -> SysResult {
+    let glob = GlobalToken::get();
+
+    if addr % FOUR_KIB != 0 || count % FOUR_KIB != 0 {
+        return SysResult::INVALID_VALUE;
+    }
+
+    let mut current = glob.processes.current();
+
+    let virt = if addr == 0 {
+        match current.address_space.find_unmapped_range(count) {
+            Some(addr) => addr,
+            None => return SysResult::OUT_OF_MEMORY,
+        }
+    } else {
+        addr
+    };
+
+    let prot = ProtectionFlags::from_bits_retain(prot as u8);
+    let mut flags = PageTableEntry::USER_ACCESSIBLE;
+    if prot.intersects(ProtectionFlags::WRITE) {
+        flags.insert(PageTableEntry::WRITABLE);
+    }
+    if !prot.intersects(ProtectionFlags::EXECUTE) {
+        flags.insert(PageTableEntry::NO_EXECUTE);
+    }
+
+    match current
+        .address_space
+        .allocate_range(virt, count, flags, |_, _| ())
+    {
+        Ok(()) => {
+            let out = unsafe { &mut *(out as *mut MaybeUninit<*mut u8>) };
+            out.write(virt as *mut u8);
+
+            while count != 0 {
+                unsafe { invlpg(addr as *mut ()) };
+                addr += FOUR_KIB;
+                count -= FOUR_KIB;
+            }
+
+            SysResult::SUCCESS
+        }
+        Err(MappingError::AlreadyMapped) => SysResult::ALREADY_MAPPED,
+        Err(MappingError::OutOfMemory) => SysResult::OUT_OF_MEMORY,
+    }
+}
+
+/// See [`ruel_sys::unmap_memory`].
+pub unsafe extern "C" fn unmap_memory(
+    mut addr: usize,
+    mut count: usize,
+    _: usize,
+    _: usize,
+    _: usize,
+    _: usize,
+) -> SysResult {
+    let glob = GlobalToken::get();
+
+    if addr % FOUR_KIB != 0 || count % FOUR_KIB != 0 {
+        return SysResult::INVALID_VALUE;
+    }
+
+    let mut current = glob.processes.current();
+
+    match current.address_space.unmap_range(addr, count) {
+        Ok(()) => {
+            while count != 0 {
+                unsafe { invlpg(addr as *mut ()) };
+                addr += FOUR_KIB;
+                count -= FOUR_KIB;
+            }
+
+            SysResult::SUCCESS
+        }
+        Err(_err) => SysResult::ALREADY_MAPPED,
+    }
 }
 
 /// See [`ruel_sys::kernel_log`].

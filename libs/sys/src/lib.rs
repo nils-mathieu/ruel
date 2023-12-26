@@ -330,14 +330,6 @@ impl Duration {
         };
 }
 
-loose_enum! {
-    /// The unique ID of a vendor of PCI devices.
-    pub struct VendorId: u16 {
-        /// Intel Corporation.
-        const INTEL = 0x8086;
-    }
-}
-
 /// Stores information about an available PCI device.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
@@ -347,5 +339,19 @@ pub struct PciDevice {
     /// The ID of the PCI device, used to recognize the device.
     pub id: u16,
     /// The vendor ID of the device.
-    pub vendor: VendorId,
+    pub vendor: u16,
+}
+
+bitflags! {
+    /// Some flags associated with a page to allocate.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    #[repr(transparent)]
+    pub struct ProtectionFlags: u8 {
+        /// Whether the page can be written to.
+        const WRITE = 1 << 0;
+        /// Whether the page can be read from.
+        const READ  = 1 << 1;
+        /// Whether the page can be executed.
+        const EXECUTE = 1 << 2;
+    }
 }

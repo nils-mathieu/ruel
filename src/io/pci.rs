@@ -2,7 +2,7 @@
 
 use core::mem::{transmute, MaybeUninit};
 
-use ruel_sys::{PciDevice, VendorId};
+use ruel_sys::PciDevice;
 use x86_64::{inl, outl};
 
 use crate::global::OutOfMemory;
@@ -159,14 +159,14 @@ fn for_each_device(mut f: impl FnMut(u32)) {
                 continue;
             }
 
+            f(pci_address(bus, device, 0));
+
             if has_multiple_functions(bus, device) {
-                for func in 0..8 {
+                for func in 1..8 {
                     if is_present(bus, device, func) {
                         f(pci_address(bus, device, func))
                     }
                 }
-            } else {
-                f(pci_address(bus, device, 0))
             }
         }
     }
@@ -197,7 +197,7 @@ pub fn init(
         devices[index].write(PciDevice {
             address,
             id: common_header.device_id,
-            vendor: VendorId::from_raw(common_header.vendor_id),
+            vendor: common_header.vendor_id,
         });
         index += 1;
     });

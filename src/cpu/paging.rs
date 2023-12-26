@@ -1,6 +1,7 @@
 use x86_64::{PageTable, PageTableEntry, PageTableIndex, PhysAddr, VirtAddr};
 
 use crate::global::OutOfMemory;
+use crate::process::USERLAND_STOP;
 
 /// The size of a 4KiB page.
 pub const FOUR_KIB: usize = 4 * 1024;
@@ -8,6 +9,8 @@ pub const FOUR_KIB: usize = 4 * 1024;
 pub const TWO_MIB: usize = 2 * 1024 * 1024;
 /// The size of a 1GiB page.
 pub const ONE_GIB: usize = 1024 * 1024 * 1024;
+/// The size of a 4GiB page.
+pub const FOUR_GIB: usize = 4 * 1024 * 1024 * 1024;
 
 /// The offset of the higher-half direct map installed by the kernel during the booting process.
 pub const HHDM_OFFSET: VirtAddr = 0xFFFF_8000_0000_0000;
@@ -125,7 +128,7 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
     ///
     /// In debug builds, this function panics if the virtual address is not aligned
     /// to a 4KiB page.
-    pub fn get_4kib_entry(
+    pub fn make_4kib_entry(
         &mut self,
         virt: VirtAddr,
         flags: PageTableEntry,
@@ -139,9 +142,9 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
 
         unsafe {
             let l4 = &mut *(self.context.physical_to_virtual(self.root) as *mut PageTable);
-            let l3 = get_directory(l4, p4, flags, &mut self.context)?;
-            let l2 = get_directory(l3, p3, flags, &mut self.context)?;
-            let l1 = get_directory(l2, p2, flags, &mut self.context)?;
+            let l3 = make_directory(l4, p4, flags, &mut self.context)?;
+            let l2 = make_directory(l3, p3, flags, &mut self.context)?;
+            let l1 = make_directory(l2, p2, flags, &mut self.context)?;
 
             Ok(&mut l1[p1])
         }
@@ -160,7 +163,7 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
     ///
     /// In debug builds, this function panics if the virtual address is not aligned
     /// to a 2MiB page.
-    pub fn get_2mib_entry(
+    pub fn make_2mib_entry(
         &mut self,
         virt: VirtAddr,
         flags: PageTableEntry,
@@ -174,8 +177,8 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
 
         unsafe {
             let l4 = &mut *(self.context.physical_to_virtual(self.root) as *mut PageTable);
-            let l3 = get_directory(l4, p4, flags, &mut self.context)?;
-            let l2 = get_directory(l3, p3, flags, &mut self.context)?;
+            let l3 = make_directory(l4, p4, flags, &mut self.context)?;
+            let l2 = make_directory(l3, p3, flags, &mut self.context)?;
             Ok(&mut l2[p2])
         }
     }
@@ -193,7 +196,7 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
     ///
     /// In debug builds, this function panics if the virtual address is not aligned
     /// to a 1GiB page.
-    pub fn get_1gib_entry(
+    pub fn make_1gib_entry(
         &mut self,
         virt: VirtAddr,
         flags: PageTableEntry,
@@ -207,7 +210,7 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
 
         unsafe {
             let l4 = &mut *(self.context.physical_to_virtual(self.root) as *mut PageTable);
-            let l3 = get_directory(l4, p4, flags, &mut self.context)?;
+            let l3 = make_directory(l4, p4, flags, &mut self.context)?;
             Ok(&mut l3[p3])
         }
     }
@@ -236,7 +239,7 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
             "The physical address is not aligned to a 4KiB page."
         );
 
-        let entry = self.get_4kib_entry(virt, flags)?;
+        let entry = self.make_4kib_entry(virt, flags)?;
 
         if entry.is_present() {
             return Err(MappingError::AlreadyMapped);
@@ -271,7 +274,7 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
             "The physical address is not aligned to a 2MiB page."
         );
 
-        let entry = self.get_2mib_entry(virt, flags)?;
+        let entry = self.make_2mib_entry(virt, flags)?;
 
         if entry.is_present() {
             return Err(MappingError::AlreadyMapped);
@@ -309,7 +312,7 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
             "The physical address is not aligned to a 1GiB page."
         );
 
-        let entry = self.get_1gib_entry(virt, flags)?;
+        let entry = self.make_1gib_entry(virt, flags)?;
 
         if entry.is_present() {
             return Err(MappingError::AlreadyMapped);
@@ -319,6 +322,72 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
             | flags
             | PageTableEntry::PRESENT
             | PageTableEntry::HUGE_PAGE;
+
+        Ok(())
+    }
+
+    /// Returns the 4Kib entry for the provided virtual address.
+    ///
+    /// # Panics
+    ///
+    /// This function panics in debug builds if the provided virtual
+    /// address is not properly aligned to a 4KiB page.
+    ///
+    /// # Returns
+    ///
+    /// If the provided virtual address is mapped to some physical address, returns
+    /// the leaf entry for the 4KiB page. Otherwise, returns `None`.
+    pub fn get_4kib_entry(&self, virt: VirtAddr) -> Result<&mut PageTableEntry, PageMiss> {
+        debug_assert!(
+            virt % FOUR_KIB == 0,
+            "The virtual address is not properly aligned to a 4KiB page."
+        );
+
+        let [p1, p2, p3, p4, _] = PageTableIndex::break_virtual_address(virt);
+
+        unsafe {
+            let l4 = &mut *(self.context.physical_to_virtual(self.root) as *mut PageTable);
+            if !l4[p4].is_present() || l4[p4].intersects(PageTableEntry::HUGE_PAGE) {
+                return Err(PageMiss {
+                    layer: MappingLayer::L4,
+                    mapping: l4[p4].intersects(PageTableEntry::HUGE_PAGE),
+                });
+            }
+            let l3 = &mut *(self.context.physical_to_virtual(l4[p4].address()) as *mut PageTable);
+            if !l3[p3].is_present() || l3[p3].intersects(PageTableEntry::HUGE_PAGE) {
+                return Err(PageMiss {
+                    layer: MappingLayer::L3,
+                    mapping: l4[p4].intersects(PageTableEntry::HUGE_PAGE),
+                });
+            }
+            let l2 = &mut *(self.context.physical_to_virtual(l3[p3].address()) as *mut PageTable);
+            if !l2[p2].is_present() || l2[p2].intersects(PageTableEntry::HUGE_PAGE) {
+                return Err(PageMiss {
+                    layer: MappingLayer::L2,
+                    mapping: l4[p4].intersects(PageTableEntry::HUGE_PAGE),
+                });
+            }
+            let l1 = &mut *(self.context.physical_to_virtual(l2[p2].address()) as *mut PageTable);
+            if !l1[p1].is_present() {
+                return Err(PageMiss {
+                    layer: MappingLayer::L1,
+                    mapping: false,
+                });
+            }
+
+            Ok(&mut l1[p1])
+        }
+    }
+
+    /// Attempts to unmap the provided 4KiB page.
+    ///
+    /// # Arguments
+    ///
+    /// - `virt`: The virtual address of the page to unmap.
+    pub fn unmap_4kib(&mut self, virt: VirtAddr) -> Result<(), PageMiss> {
+        let entry = self.get_4kib_entry(virt)?;
+
+        *entry = PageTableEntry::empty();
 
         Ok(())
     }
@@ -420,6 +489,120 @@ impl<C: AddressSpaceContext> AddressSpace<C> {
         Ok(())
     }
 
+    /// Unmaps the provided range of virtual addresses.
+    ///
+    /// # Panics
+    ///
+    /// This function panics in debug mode if any of the provided input
+    /// arguments are not properly aligned to a 4KiB page boundary.
+    ///
+    /// # Errors
+    ///
+    /// This function returns `ALREADY_MAPPED` if any of the provided virtual addresses are not
+    /// mapped.
+    ///
+    /// Note that in case of error, part of the requested range might have been properly
+    /// unmapped.
+    pub fn unmap_range(&mut self, mut virt: VirtAddr, mut length: usize) -> Result<(), PageMiss> {
+        debug_assert!(
+            virt % FOUR_KIB == 0,
+            "The virtual address is not aligned to a 4KiB page.",
+        );
+        debug_assert!(
+            length % FOUR_KIB == 0,
+            "The length is not a multiple of 4KiB.",
+        );
+
+        while length != 0 {
+            // FIXME: take larger mapping into account.
+            self.unmap_4kib(virt)?;
+            virt += FOUR_KIB;
+            length -= FOUR_KIB;
+        }
+
+        Ok(())
+    }
+
+    /// Attempts to find an unmapped range of virtual addresses.
+    ///
+    /// # Panics
+    ///
+    /// This function panics in debug builds if `count` is not properly aligned
+    /// to the page size.
+    ///
+    /// # Remarks
+    ///
+    /// This function only looks for valid memory within the common user-space
+    /// area. (<= USERLAND_STOP)
+    pub fn find_unmapped_range(&self, count: usize) -> Option<VirtAddr> {
+        debug_assert!(
+            count % FOUR_KIB == 0,
+            "The length is not properly aligned to a 4KiB page."
+        );
+
+        const UPPER_BOUND: VirtAddr = USERLAND_STOP + 1;
+
+        let mut virt = 0x1000;
+        let mut count_so_far = 0;
+        while virt < UPPER_BOUND && count_so_far < count {
+            match self.get_4kib_entry(virt) {
+                // The page is already mapped.
+                // We can't use that.
+                Ok(_) => virt += FOUR_KIB,
+                Err(err) => {
+                    match err.layer {
+                        MappingLayer::L1 => {
+                            // The only way to get here is if the last L1 layer
+                            // is not mapped.
+                            debug_assert!(!err.mapping);
+                            count_so_far += FOUR_KIB;
+                        }
+                        MappingLayer::L2 => {
+                            if err.mapping {
+                                debug_assert!(virt % TWO_MIB == 0);
+
+                                // A huge page is mapped.
+                                count_so_far = 0;
+                                virt += TWO_MIB;
+                            } else {
+                                // The last L2 layer is not mapped.
+                                count_so_far += TWO_MIB;
+                            }
+                        }
+                        MappingLayer::L3 => {
+                            if err.mapping {
+                                debug_assert!(virt % ONE_GIB == 0);
+
+                                // A huge page is mapped.
+                                count_so_far = 0;
+                                virt += ONE_GIB;
+                            } else {
+                                // The last L3 layer is not mapped.
+                                count_so_far += ONE_GIB;
+                            }
+                        }
+                        MappingLayer::L4 => {
+                            if err.mapping {
+                                // Not possible because five-level paging
+                                // is not enabled.
+                                unreachable!();
+                            } else {
+                                // The last L4 layer is not mapped.
+                                count_so_far += FOUR_GIB;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if count_so_far >= count {
+            Some(virt)
+        } else {
+            None
+        }
+    }
+
     /// Leaks this [`AddressSpace`], exposing the underlying root L4 page table.
     #[inline]
     pub fn leak(self) -> PhysAddr {
@@ -474,7 +657,7 @@ pub unsafe trait AddressSpaceContext {
 ///
 /// The caller must ensure that the physical addresses that are part of the entries
 /// in this page table have been allocated by the provided context.
-unsafe fn get_directory<'a>(
+unsafe fn make_directory<'a>(
     table: &'a mut PageTable,
     index: PageTableIndex,
     flags: PageTableEntry,
@@ -536,3 +719,25 @@ pub const KERNEL_BIT: PageTableEntry = PageTableEntry::OS_BIT_9;
 /// A bit that's set for pages that are *not* owned by the process, meaning that they must not be
 /// given back to the kernel when the process is destroyed.
 pub const NOT_OWNED_BIT: PageTableEntry = PageTableEntry::OS_BIT_10;
+
+/// A possible mapping layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MappingLayer {
+    L4,
+    L3,
+    L2,
+    L1,
+}
+
+/// A possible way to miss a mapping.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PageMiss {
+    /// The layer at which the miss occured.
+    pub layer: MappingLayer,
+    /// Whether the page was present.
+    ///
+    /// If set, the page was mapping a huge page (or a regular mapping).
+    ///
+    /// If clear, the page was not present.
+    pub mapping: bool,
+}

@@ -8,9 +8,8 @@ use x86_64::{PageTable, PageTableIndex, PhysAddr, VirtAddr};
 use crate::cpu::paging::{AddressSpace, AddressSpaceContext, HHDM_OFFSET, KERNEL_BIT};
 use crate::global::{GlobalToken, OutOfMemory};
 
-use self::io_states::IoStates;
-
 mod io_states;
+pub use self::io_states::*;
 
 /// The last address that is part of userland.
 pub const USERLAND_STOP: VirtAddr = 0x0000_7FFF_FFFF_FFFF;

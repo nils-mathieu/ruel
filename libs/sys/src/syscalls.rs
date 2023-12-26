@@ -1,6 +1,8 @@
 use core::arch::asm;
 
-use crate::{Framebuffer, PciDevice, ProcessId, SysResult, Sysno, Value, Verbosity, WakeUp};
+use crate::{
+    Framebuffer, PciDevice, ProcessId, ProtectionFlags, SysResult, Sysno, Value, Verbosity, WakeUp,
+};
 
 /// Performs a system call with no arguments.
 ///
@@ -336,6 +338,79 @@ pub fn enumerate_pci_devices(devices: *mut PciDevice, count: *mut usize) -> SysR
             count as usize,
         ))
     }
+}
+
+/// Allocate memory into the process's address space.
+///
+/// # Parameters
+///
+/// - `addr`: The virtual address of the page to allocate; or a null pointer if the
+///   OS should choose a page by itself. This pointer must be aligned to the page size.
+///
+/// - `count`: The number of bytes to allocate. This must be aligned to the page size.
+///
+/// - `flags`: The flags associated with the allocation.
+///
+/// # Errors
+///
+/// - `INVALID_VALUE` if either the `count` or the `addr` provided is not aligned
+///   to the page size.
+///
+/// - `OUT_OF_MEMORY` if the system is out of physical memory for the process.
+///
+/// - `ALREADY_MAPPED` if any of  the requested virtual addresses have already been
+///   mapped to some other physical address. This can only happen if `addr` is
+///   not null.
+///
+/// # Returns
+///
+/// The virtual address of the first page allocated.  If `addr` is not null, this
+/// is always equal to `addr`.
+#[inline]
+pub fn map_memory(
+    addr: *mut u8,
+    count: usize,
+    prot: ProtectionFlags,
+    out: *mut *mut u8,
+) -> SysResult {
+    unsafe {
+        SysResult::from_raw(syscall4(
+            Sysno::MapMemory as usize,
+            addr as usize,
+            count,
+            prot.bits() as usize,
+            out as usize,
+        ))
+    }
+}
+
+/// Unmaps a memory region from the process's address space.
+///
+/// # Parameters
+///
+/// - `addr`: The virtual address of the first page to unmap. This pointer must be aligned
+///   to the page size.
+///
+/// - `count`: The number of bytes to unmap. This must be aligned to the page size.
+///
+/// # Errors
+///
+/// - `INVALID_VALUE` if either the `count` or the `addr` provided is not aligned
+///   to the page size.
+///
+/// - `NOT_MAPPED` if any of the requested virtual addresses requested to be unmapped are not
+///   currently part of the process's virtual address space.
+///
+/// # Remarks
+///
+/// This function ignores any pages that are not mapped into the process's address space.
+///
+/// # Returns
+///
+/// Nothing.
+#[inline]
+pub fn unmap_memory(addr: *mut u8, count: usize) -> SysResult {
+    unsafe { SysResult::from_raw(syscall2(Sysno::UnmapMemory as usize, addr as usize, count)) }
 }
 
 /// Sends a message using the kernel's logging system.

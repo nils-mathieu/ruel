@@ -13,6 +13,10 @@ pub enum Sysno {
     ReadValue,
     /// See [`enumerate_pci_devices`](crate::enumerate_pci_devices).
     EnumeratePciDevices,
+    /// See [`map_memory`](crate::map_memory).
+    MapMemory,
+    /// See [`unmap_memory`](crate::unmap_memory).
+    UnmapMemory,
     /// See [`kernel_log`](crate::kernel_log).
     KernelLog,
 }
